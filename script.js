@@ -2,7 +2,7 @@ const BOARD_SIZE = 8;
 const CANDY_TYPES = 6;
 const BASE_TIME_SECONDS = 90;
 const TIME_BONUS_PER_LEVEL = 18;
-const SCORE_PER_CANDY = 60;
+const SCORE_PER_CANDY = 50;
 const FALL_ANIMATION_MS = 280;
 const MATCH_ANIMATION_MS = 190;
 const CLEAR_DELAY_MS = 55;
@@ -10,9 +10,9 @@ const STORAGE_STATS_KEY = "candy-session-stats-v2";
 const STORAGE_HIGH_SCORE_KEY = "candy-high-score";
 
 const LEVELS = [
-  { scoreTarget: 5000, colorTarget: { type: 0, count: 20 } },
-  { scoreTarget: 12000, colorTarget: { type: 2, count: 26 } },
-  { scoreTarget: 22000, colorTarget: { type: 4, count: 30 } },
+  { seed: "blitz-1", scoreTarget: 5000, colorTarget: { type: 0, count: 20 } },
+  { seed: "blitz-2", scoreTarget: 12000, colorTarget: { type: 2, count: 26 } },
+  { seed: "blitz-3", scoreTarget: 22000, colorTarget: { type: 4, count: 30 } },
 ];
 
 const COLOR_NAMES = ["Pink", "Yellow", "Blue", "Green", "Purple", "Orange"];
@@ -27,6 +27,10 @@ const goalProgressEl = document.getElementById("goal-progress");
 const messageEl = document.getElementById("message");
 const resetBtn = document.getElementById("reset-btn");
 const pauseBtn = document.getElementById("pause-btn");
+const hintBtn = document.getElementById("hint-btn");
+const colorblindBtn = document.getElementById("colorblind-btn");
+const motionBtn = document.getElementById("motion-btn");
+const soundBtn = document.getElementById("sound-btn");
 const overlayEl = document.getElementById("overlay");
 const modalTitleEl = document.getElementById("modal-title");
 const modalTextEl = document.getElementById("modal-text");
@@ -49,6 +53,14 @@ let comboLongestThisRun = 0;
 let totalMatchesThisRun = 0;
 let audioCtx = null;
 let warnedLowTime = false;
+let lowPerfMode = (navigator.deviceMemory || 4) <= 4;
+let soundEnabled = true;
+let reducedMotion = false;
+let colorblindEnabled = false;
+let hintTimerId = null;
+let hintCells = [];
+let keyboardCursor = { row: 0, col: 0 };
+let levelRng = Math.random;
 
 const persistentStats = loadPersistentStats();
 const cellEls = [];
@@ -87,8 +99,31 @@ function savePersistentStats() {
   localStorage.setItem(STORAGE_STATS_KEY, JSON.stringify(persistentStats));
 }
 
+function hashSeed(seedText) {
+  let hash = 2166136261;
+  for (let i = 0; i < seedText.length; i += 1) {
+    hash ^= seedText.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed) {
+  return function next() {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function applyLevelSeed(levelIndex) {
+  const level = LEVELS[Math.min(levelIndex - 1, LEVELS.length - 1)];
+  levelRng = mulberry32(hashSeed(level.seed));
+}
+
 function randomCandyType() {
-  return Math.floor(Math.random() * CANDY_TYPES);
+  return Math.floor(levelRng() * CANDY_TYPES);
 }
 
 function createCell(type = randomCandyType(), special = null) {
@@ -112,11 +147,54 @@ function setMessage(text) {
   messageEl.textContent = text;
 }
 
+function updateToggleLabels() {
+  colorblindBtn.textContent = `Colorblind: ${colorblindEnabled ? "On" : "Off"}`;
+  motionBtn.textContent = `Motion: ${reducedMotion ? "Off" : "On"}`;
+  soundBtn.textContent = `Sound: ${soundEnabled ? "On" : "Off"}`;
+}
+
+function applyAccessibilityClasses() {
+  document.body.classList.toggle("colorblind", colorblindEnabled);
+  document.body.classList.toggle("reduced-motion", reducedMotion);
+}
+
+function clearHintCells() {
+  for (const cell of hintCells) {
+    cellEls[cell.row][cell.col].classList.remove("hint");
+  }
+  hintCells = [];
+}
+
+function showHint(move = null) {
+  clearHintCells();
+  const found = move || findAnyValidMove();
+  if (!found) return;
+  hintCells = [found.from, found.to];
+  cellEls[found.from.row][found.from.col].classList.add("hint");
+  cellEls[found.to.row][found.to.col].classList.add("hint");
+}
+
+function scheduleHint() {
+  if (hintTimerId) clearTimeout(hintTimerId);
+  clearHintCells();
+  hintTimerId = setTimeout(() => {
+    if (!busy && !paused && !gameOver) showHint();
+  }, 4500);
+}
+
+function setKeyboardCursor(row, col) {
+  if (!inBounds(row, col)) return;
+  cellEls[keyboardCursor.row][keyboardCursor.col].classList.remove("keyboard-focus");
+  keyboardCursor = { row, col };
+  cellEls[row][col].classList.add("keyboard-focus");
+}
+
 function vibrate(pattern) {
   if (navigator.vibrate) navigator.vibrate(pattern);
 }
 
 function ensureAudioContext() {
+  if (!soundEnabled) return;
   if (!audioCtx) {
     audioCtx = new AudioContext();
   }
@@ -126,7 +204,7 @@ function ensureAudioContext() {
 }
 
 function playTone(freq, durationMs, type = "sine", gain = 0.05) {
-  if (!audioCtx) return;
+  if (!audioCtx || !soundEnabled) return;
   const now = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
   const amp = audioCtx.createGain();
@@ -420,6 +498,82 @@ function tryColorBombSwap(a, b) {
   return { clearSet, scoreMult: 2 };
 }
 
+function addAreaToSet(set, centerRow, centerCol, radius) {
+  for (let row = centerRow - radius; row <= centerRow + radius; row += 1) {
+    for (let col = centerCol - radius; col <= centerCol + radius; col += 1) {
+      if (inBounds(row, col)) set.add(keyOf(row, col));
+    }
+  }
+}
+
+function trySpecialComboSwap(a, b) {
+  const first = board[a.row][a.col];
+  const second = board[b.row][b.col];
+  if (!first?.special || !second?.special) return null;
+
+  const clearSet = new Set([keyOf(a.row, a.col), keyOf(b.row, b.col)]);
+  const specials = [first.special, second.special].sort().join("+");
+
+  if (specials === "striped-h+striped-v" || specials === "striped-h+striped-h" || specials === "striped-v+striped-v") {
+    for (let c = 0; c < BOARD_SIZE; c += 1) {
+      clearSet.add(keyOf(a.row, c));
+      clearSet.add(keyOf(b.row, c));
+    }
+    for (let r = 0; r < BOARD_SIZE; r += 1) {
+      clearSet.add(keyOf(r, a.col));
+      clearSet.add(keyOf(r, b.col));
+    }
+    return { clearSet, scoreMult: 2.2 };
+  }
+
+  if (specials.includes("wrapped") && specials.includes("striped")) {
+    for (let r = -1; r <= 1; r += 1) {
+      for (let c = 0; c < BOARD_SIZE; c += 1) {
+        if (inBounds(a.row + r, c)) clearSet.add(keyOf(a.row + r, c));
+      }
+    }
+    for (let c = -1; c <= 1; c += 1) {
+      for (let r = 0; r < BOARD_SIZE; r += 1) {
+        if (inBounds(r, a.col + c)) clearSet.add(keyOf(r, a.col + c));
+      }
+    }
+    return { clearSet, scoreMult: 2.6 };
+  }
+
+  if (specials === "wrapped+wrapped") {
+    addAreaToSet(clearSet, a.row, a.col, 2);
+    addAreaToSet(clearSet, b.row, b.col, 2);
+    return { clearSet, scoreMult: 2.8 };
+  }
+
+  if (specials.includes("color-bomb")) {
+    const source = first.special === "color-bomb" ? second : first;
+    if (source?.type === null || source?.type === undefined) {
+      for (let row = 0; row < BOARD_SIZE; row += 1) {
+        for (let col = 0; col < BOARD_SIZE; col += 1) {
+          clearSet.add(keyOf(row, col));
+        }
+      }
+      return { clearSet, scoreMult: 3.2 };
+    }
+
+    for (let row = 0; row < BOARD_SIZE; row += 1) {
+      for (let col = 0; col < BOARD_SIZE; col += 1) {
+        const cell = board[row][col];
+        if (cell?.type === source.type) {
+          if (source.special && source.special !== "color-bomb") {
+            cell.special = source.special;
+          }
+          clearSet.add(keyOf(row, col));
+        }
+      }
+    }
+    return { clearSet, scoreMult: 3 };
+  }
+
+  return null;
+}
+
 function determineSpecialToCreate(matchData, preferredCells) {
   const cellHits = new Map();
   let best = null;
@@ -561,7 +715,7 @@ function triggerBoardImpact(clearCount) {
 async function animateMatches(clearSet, combo) {
   let rowSum = 0;
   let colSum = 0;
-  const sparkStride = clearSet.size > 24 ? 2 : 1;
+  const sparkStride = lowPerfMode ? 3 : clearSet.size > 24 ? 2 : 1;
   let index = 0;
 
   for (const key of clearSet) {
@@ -598,6 +752,7 @@ async function animateMatches(clearSet, combo) {
 
 function clearCellsAndApplyScore(clearSet, combo, scoreMultiplier = 1) {
   let colorsCleared = 0;
+  let specialsCleared = 0;
 
   for (const key of clearSet) {
     const { row, col } = parseKey(key);
@@ -605,6 +760,7 @@ function clearCellsAndApplyScore(clearSet, combo, scoreMultiplier = 1) {
     if (cell && cell.type !== null && cell.type === currentLevelConfig().colorTarget.type) {
       colorsCleared += 1;
     }
+    if (cell?.special) specialsCleared += 1;
     board[row][col] = null;
   }
 
@@ -612,7 +768,11 @@ function clearCellsAndApplyScore(clearSet, combo, scoreMultiplier = 1) {
   totalMatchesThisRun += clearSet.size;
   comboLongestThisRun = Math.max(comboLongestThisRun, combo);
 
-  score += Math.round(clearSet.size * SCORE_PER_CANDY * combo * scoreMultiplier);
+  const basePoints = clearSet.size * SCORE_PER_CANDY;
+  const specialBonus = specialsCleared * 130;
+  const comboMultiplier = 1 + (combo - 1) * 0.35;
+  const pressureBonus = timeLeft <= 15 ? Math.round(basePoints * 0.15) : 0;
+  score += Math.round((basePoints + specialBonus + pressureBonus) * comboMultiplier * scoreMultiplier);
 }
 
 function collapseBoard() {
@@ -651,7 +811,7 @@ function restoreSnapshot(snapshot) {
   board = snapshot.map((row) => row.map((cell) => (cell ? { ...cell } : null)));
 }
 
-function hasValidMove() {
+function findAnyValidMove() {
   const directions = [
     [0, 1],
     [1, 0],
@@ -669,18 +829,24 @@ function hasValidMove() {
         const other = board[nr][nc];
         if (!other) continue;
 
-        if (cell.special === "color-bomb" || other.special === "color-bomb") return true;
+        if (cell.special === "color-bomb" || other.special === "color-bomb") {
+          return { from: { row, col }, to: { row: nr, col: nc } };
+        }
 
         swapCells({ row, col }, { row: nr, col: nc });
         const hasMatch = findMatchData().matches.size > 0;
         swapCells({ row, col }, { row: nr, col: nc });
 
-        if (hasMatch) return true;
+        if (hasMatch) return { from: { row, col }, to: { row: nr, col: nc } };
       }
     }
   }
 
-  return false;
+  return null;
+}
+
+function hasValidMove() {
+  return Boolean(findAnyValidMove());
 }
 
 function reshuffleBoard() {
@@ -696,7 +862,7 @@ function reshuffleBoard() {
   do {
     tries += 1;
     for (let i = pool.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(levelRng() * (i + 1));
       const tmp = pool[i];
       pool[i] = pool[j];
       pool[j] = tmp;
@@ -729,6 +895,7 @@ function advanceLevel() {
   }
 
   currentLevel += 1;
+  applyLevelSeed(currentLevel);
   levelState = { scoreStart: score, colorProgress: 0 };
   timeLeft += TIME_BONUS_PER_LEVEL;
   warnedLowTime = false;
@@ -780,17 +947,42 @@ async function resolveBoard(preferredCells = new Set(), scoreMultiplier = 1) {
 }
 
 function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  if (reducedMotion) return Promise.resolve();
+  return new Promise((resolve) => {
+    const start = performance.now();
+    function tick(now) {
+      if (now - start >= ms) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  });
 }
 
 function getSwapDirection(startX, startY, endX, endY) {
   const dx = endX - startX;
   const dy = endY - startY;
   const threshold = 14;
+  const ratioThreshold = 1.22;
 
   if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return null;
-  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? { dr: 0, dc: 1 } : { dr: 0, dc: -1 };
-  return dy > 0 ? { dr: 1, dc: 0 } : { dr: -1, dc: 0 };
+  if (Math.abs(dx) / Math.max(1, Math.abs(dy)) > ratioThreshold) {
+    return dx > 0 ? { dr: 0, dc: 1 } : { dr: 0, dc: -1 };
+  }
+  if (Math.abs(dy) / Math.max(1, Math.abs(dx)) > ratioThreshold) {
+    return dy > 0 ? { dr: 1, dc: 0 } : { dr: -1, dc: 0 };
+  }
+  return null;
+}
+
+function clearPreview() {
+  for (let row = 0; row < BOARD_SIZE; row += 1) {
+    for (let col = 0; col < BOARD_SIZE; col += 1) {
+      cellEls[row][col].classList.remove("preview");
+    }
+  }
 }
 
 async function processSwap(a, b) {
@@ -799,6 +991,7 @@ async function processSwap(a, b) {
   if (!areAdjacent(a, b)) return;
 
   busy = true;
+  clearHintCells();
   playSwapSound();
   candyEls[a.row][a.col].classList.add("swapping");
   candyEls[b.row][b.col].classList.add("swapping");
@@ -808,10 +1001,11 @@ async function processSwap(a, b) {
   refreshCell(a.row, a.col);
   refreshCell(b.row, b.col);
 
-  const bombResult = tryColorBombSwap(a, b);
+  const specialComboResult = trySpecialComboSwap(a, b);
+  const bombResult = specialComboResult ? null : tryColorBombSwap(a, b);
   const hasMatch = findMatchData().matches.size > 0;
 
-  if (!bombResult && !hasMatch) {
+  if (!specialComboResult && !bombResult && !hasMatch) {
     await delay(115);
     swapCells(a, b);
     refreshCell(a.row, a.col);
@@ -822,7 +1016,16 @@ async function processSwap(a, b) {
     return;
   }
 
-  if (bombResult) {
+  if (specialComboResult) {
+    await animateMatches(specialComboResult.clearSet, 1);
+    clearCellsAndApplyScore(specialComboResult.clearSet, 1, specialComboResult.scoreMult);
+    updateHud();
+    await delay(CLEAR_DELAY_MS);
+    const dropMap = collapseBoard();
+    refreshBoard(dropMap);
+    await delay(FALL_ANIMATION_MS);
+    await resolveBoard();
+  } else if (bombResult) {
     await animateMatches(bombResult.clearSet, 1);
     clearCellsAndApplyScore(bombResult.clearSet, 1, bombResult.scoreMult);
     updateHud();
@@ -838,10 +1041,12 @@ async function processSwap(a, b) {
   setMessage("Keep chaining for bigger combos.");
   clearSelection();
   busy = false;
+  scheduleHint();
 }
 
 function handleBoardClick(cell) {
   if (busy || paused || gameOver) return;
+  scheduleHint();
 
   const row = Number(cell.dataset.row);
   const col = Number(cell.dataset.col);
@@ -924,6 +1129,7 @@ function pauseGame() {
   if (gameOver || paused) return;
   paused = true;
   stopTimer();
+  clearHintCells();
   showOverlay("pause");
   setMessage("Paused.");
 }
@@ -933,6 +1139,7 @@ function resumeGame() {
   paused = false;
   hideOverlay();
   startTimer();
+  scheduleHint();
   setMessage("Back in action.");
 }
 
@@ -976,12 +1183,15 @@ function startGame() {
   comboLongestThisRun = 0;
   totalMatchesThisRun = 0;
   warnedLowTime = false;
+  applyLevelSeed(1);
 
   createRandomBoard();
   refreshBoard();
   hideOverlay();
   updateHud();
   startTimer();
+  setKeyboardCursor(0, 0);
+  scheduleHint();
   setMessage("Real-time mode: drag or tap to swap and chain combos.");
 }
 
@@ -994,6 +1204,8 @@ boardEl.addEventListener("pointerdown", (event) => {
   if (!cell || busy || paused || gameOver) return;
 
   ensureAudioContext();
+  scheduleHint();
+  clearPreview();
 
   pointerState = {
     startX: event.clientX,
@@ -1008,6 +1220,7 @@ boardEl.addEventListener("pointerdown", (event) => {
 
 boardEl.addEventListener("pointermove", (event) => {
   if (!pointerState || pointerState.acted || busy || paused || gameOver) return;
+  clearPreview();
 
   const dir = getSwapDirection(
     pointerState.startX,
@@ -1017,6 +1230,12 @@ boardEl.addEventListener("pointermove", (event) => {
   );
   if (!dir) return;
 
+  const previewRow = pointerState.row + dir.dr;
+  const previewCol = pointerState.col + dir.dc;
+  if (inBounds(previewRow, previewCol)) {
+    cellEls[previewRow][previewCol].classList.add("preview");
+  }
+
   pointerState.acted = true;
   const from = { row: pointerState.row, col: pointerState.col };
   const to = { row: from.row + dir.dr, col: from.col + dir.dc };
@@ -1024,6 +1243,7 @@ boardEl.addEventListener("pointermove", (event) => {
 });
 
 boardEl.addEventListener("pointerup", (event) => {
+  clearPreview();
   if (pointerState && !pointerState.acted) {
     const cell = extractCellFromEventTarget(event.target);
     if (cell) handleBoardClick(cell);
@@ -1063,5 +1283,53 @@ playAgainBtn.addEventListener("click", () => {
   startGame();
 });
 
+hintBtn.addEventListener("click", () => {
+  showHint();
+});
+
+colorblindBtn.addEventListener("click", () => {
+  colorblindEnabled = !colorblindEnabled;
+  applyAccessibilityClasses();
+  updateToggleLabels();
+});
+
+motionBtn.addEventListener("click", () => {
+  reducedMotion = !reducedMotion;
+  applyAccessibilityClasses();
+  updateToggleLabels();
+});
+
+soundBtn.addEventListener("click", () => {
+  soundEnabled = !soundEnabled;
+  updateToggleLabels();
+});
+
+window.addEventListener("keydown", (event) => {
+  if (overlayEl.classList.contains("hidden") === false) return;
+  if (busy || paused || gameOver) return;
+
+  const key = event.key;
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "].includes(key)) {
+    event.preventDefault();
+  }
+
+  if (key === "ArrowUp") setKeyboardCursor(Math.max(0, keyboardCursor.row - 1), keyboardCursor.col);
+  else if (key === "ArrowDown") setKeyboardCursor(Math.min(BOARD_SIZE - 1, keyboardCursor.row + 1), keyboardCursor.col);
+  else if (key === "ArrowLeft") setKeyboardCursor(keyboardCursor.row, Math.max(0, keyboardCursor.col - 1));
+  else if (key === "ArrowRight") setKeyboardCursor(keyboardCursor.row, Math.min(BOARD_SIZE - 1, keyboardCursor.col + 1));
+  else if (key === "Enter" || key === " ") {
+    const { row, col } = keyboardCursor;
+    if (!selectedCell) {
+      setSelected(row, col);
+    } else if (areAdjacent(selectedCell, { row, col })) {
+      processSwap(selectedCell, { row, col });
+    } else {
+      setSelected(row, col);
+    }
+  }
+});
+
 buildBoardDom();
+applyAccessibilityClasses();
+updateToggleLabels();
 startGame();

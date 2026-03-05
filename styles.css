@@ -6,6 +6,8 @@
   --accent: #ef476f;
   --board-bg: #ffffffb3;
   --board-cell: #f7ecff;
+  --hint: #fff176;
+  --focus: #3d5afe;
 }
 
 * {
@@ -121,6 +123,19 @@ body {
 .cell.selected {
   transform: scale(1.05);
   outline: 3px solid #ffe066;
+}
+
+.cell.preview {
+  outline: 3px dashed #ff9800;
+}
+
+.cell.hint {
+  outline: 3px solid var(--hint);
+  animation: hintPulse 900ms ease-in-out infinite;
+}
+
+.cell.keyboard-focus {
+  outline: 3px solid var(--focus);
 }
 
 .candy {
@@ -262,6 +277,10 @@ button:hover {
   background: #3457d5;
 }
 
+#hint-btn {
+  background: #6d4c41;
+}
+
 #message {
   margin: 0;
   font-weight: 600;
@@ -331,6 +350,54 @@ button:hover {
 
 .board.combo-impact {
   animation: boardPunch 180ms ease-out;
+}
+
+body.colorblind .type-0 {
+  --ball-base: #ff6f00;
+  --ball-mid: #ffa33a;
+  --ball-shadow: #bf4f00;
+  --ball-highlight: #ffe8cb;
+  --ball-rim: #9e4300;
+}
+
+body.colorblind .type-1 {
+  --ball-base: #1e88e5;
+  --ball-mid: #54a8ef;
+  --ball-shadow: #0f5da8;
+  --ball-highlight: #e0f0ff;
+  --ball-rim: #0a4c8b;
+}
+
+body.colorblind .type-2 {
+  --ball-base: #8e24aa;
+  --ball-mid: #ac4bc6;
+  --ball-shadow: #66187f;
+  --ball-highlight: #f3e2fb;
+  --ball-rim: #531168;
+}
+
+body.colorblind .type-3 {
+  --ball-base: #00897b;
+  --ball-mid: #35a79b;
+  --ball-shadow: #066157;
+  --ball-highlight: #dcf8f4;
+  --ball-rim: #03574f;
+}
+
+body.colorblind .type-4 {
+  --ball-base: #c62828;
+  --ball-mid: #db5757;
+  --ball-shadow: #8c1b1b;
+  --ball-highlight: #ffe2e2;
+  --ball-rim: #771313;
+}
+
+body.colorblind .type-5 {
+  --ball-base: #546e7a;
+  --ball-mid: #78909b;
+  --ball-shadow: #34434b;
+  --ball-highlight: #e3ecf0;
+  --ball-rim: #2b3940;
 }
 
 .overlay {
@@ -433,6 +500,18 @@ button:hover {
   0% { transform: scale(1); }
   35% { transform: scale(1.012); }
   100% { transform: scale(1); }
+}
+
+@keyframes hintPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+body.reduced-motion * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
 
 @media (max-width: 760px) {

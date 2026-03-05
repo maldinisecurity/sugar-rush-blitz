@@ -1,0 +1,10 @@
+{
+  "name": "sugar-rush-blitz",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "check": "node --check script.js",
+    "test": "node --test core.test.js",
+    "build": "rm -rf dist && mkdir -p dist && cp index.html styles.css script.js README.md game-core.js dist/"
+  }
+}
