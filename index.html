@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sugar Rush Blitz</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="hud">
+        <h1>Sugar Rush Blitz</h1>
+        <div class="stats">
+          <div class="stat">
+            <span class="label">Score</span>
+            <span id="score">0</span>
+          </div>
+          <div class="stat">
+            <span class="label">High Score</span>
+            <span id="high-score">0</span>
+          </div>
+          <div class="stat">
+            <span class="label">Time Left</span>
+            <span id="time-left">90</span>
+          </div>
+          <div class="stat">
+            <span class="label">Level</span>
+            <span id="level">1</span>
+          </div>
+        </div>
+        <div class="goals">
+          <p id="goal-text">Goal: Reach 5,000 points.</p>
+          <p id="goal-progress">Progress: 0 / 5,000</p>
+        </div>
+      </header>
+
+      <section class="game-wrap">
+        <div id="board" class="board" aria-label="Candy board"></div>
+      </section>
+
+      <footer class="controls">
+        <div class="btn-row">
+          <button id="reset-btn" type="button">New Game</button>
+          <button id="pause-btn" type="button">Pause</button>
+        </div>
+        <p id="message">Real-time mode: drag or tap to swap and match fast.</p>
+      </footer>
+    </main>
+
+    <section id="overlay" class="overlay hidden" aria-live="polite">
+      <article class="modal">
+        <h2 id="modal-title">Game Paused</h2>
+        <p id="modal-text">Tap Resume to continue.</p>
+        <div class="modal-stats" id="modal-stats"></div>
+        <div class="btn-row">
+          <button id="resume-btn" type="button">Resume</button>
+          <button id="play-again-btn" type="button">Play Again</button>
+        </div>
+      </article>
+    </section>
+
+    <script src="script.js"></script>
+  </body>
+</html>
