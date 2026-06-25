@@ -19,7 +19,8 @@ test("findMatchDataForGrid detects row and column matches", () => {
   assert.equal(out.matches.has("0-0"), true);
   assert.equal(out.matches.has("0-1"), true);
   assert.equal(out.matches.has("0-2"), true);
-  assert.equal(out.groups.length >= 2, true);
+  assert.equal(out.groups.some((group) => group.dir === "h"), true);
+  assert.equal(out.groups.some((group) => group.dir === "v"), true);
 });
 
 test("hasValidMoveForGrid returns true when a single swap can match", () => {
@@ -34,22 +35,21 @@ test("hasValidMoveForGrid returns true when a single swap can match", () => {
 test("seededRng is deterministic", () => {
   const a = seededRng(42);
   const b = seededRng(42);
-  const seqA = [a(), a(), a(), a()];
-  const seqB = [b(), b(), b(), b()];
-  assert.deepEqual(seqA, seqB);
+  assert.deepEqual([a(), a(), a(), a()], [b(), b(), b(), b()]);
 });
 
-test("computeScoreBreakdown includes special/combo bonuses", () => {
+test("computeScoreBreakdown rewards streak, specials, pressure, and fever", () => {
   const out = computeScoreBreakdown({
     clearCount: 10,
     specialsCleared: 2,
-    combo: 3,
-    scoreMultiplier: 2,
-    timeLeft: 12,
+    streak: 3,
+    fever: 0.6,
+    timeLeft: 8,
   });
-  assert.equal(out.basePoints, 500);
-  assert.equal(out.specialBonus, 260);
-  assert.equal(out.total > 0, true);
+  assert.equal(out.basePoints, 600);
+  assert.equal(out.specialBonus, 440);
+  assert.equal(out.streakBonus, 600);
+  assert.equal(out.total > out.basePoints + out.specialBonus, true);
 });
 
 test("shouldAdvanceLevel validates score and color goals", () => {

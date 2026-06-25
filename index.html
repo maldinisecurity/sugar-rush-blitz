@@ -7,60 +7,94 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="app">
-      <header class="hud">
-        <h1>Sugar Rush Blitz</h1>
-        <div class="stats">
-          <div class="stat">
-            <span class="label">Score</span>
-            <span id="score">0</span>
-          </div>
-          <div class="stat">
-            <span class="label">High Score</span>
-            <span id="high-score">0</span>
-          </div>
-          <div class="stat">
-            <span class="label">Time Left</span>
-            <span id="time-left">90</span>
-          </div>
-          <div class="stat">
-            <span class="label">Level</span>
-            <span id="level">1</span>
+    <main class="game-shell">
+      <section class="topbar" aria-label="Game status">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>Sugar Rush Blitz</h1>
+            <p id="message">Swap sweets, build streaks, beat the quota.</p>
           </div>
         </div>
-        <div class="goals">
-          <p id="goal-text">Goal: Reach 5,000 points.</p>
-          <p id="goal-progress">Progress: 0 / 5,000</p>
+        <div class="quick-stats">
+          <article>
+            <span>Score</span>
+            <strong id="score">0</strong>
+          </article>
+          <article>
+            <span>Best</span>
+            <strong id="high-score">0</strong>
+          </article>
+          <article>
+            <span>Time</span>
+            <strong id="time-left">90</strong>
+          </article>
+          <article>
+            <span>Level</span>
+            <strong id="level">1</strong>
+          </article>
         </div>
-      </header>
-
-      <section class="game-wrap">
-        <div id="board" class="board" aria-label="Candy board"></div>
       </section>
 
-      <footer class="controls">
-        <div class="btn-row">
-          <button id="reset-btn" type="button">New Game</button>
-          <button id="pause-btn" type="button">Pause</button>
-          <button id="hint-btn" type="button">Hint</button>
-        </div>
-        <div class="btn-row">
-          <button id="colorblind-btn" type="button">Colorblind: Off</button>
-          <button id="motion-btn" type="button">Motion: On</button>
-          <button id="sound-btn" type="button">Sound: On</button>
-        </div>
-        <p id="message">Real-time mode: drag or tap to swap and match fast.</p>
-      </footer>
+      <section class="play-layout">
+        <aside class="side-panel" aria-label="Objectives">
+          <div class="panel-block">
+            <span class="eyebrow">Objective</span>
+            <h2 id="goal-title">Level 1</h2>
+            <p id="goal-copy">Reach the score target and collect the requested candy.</p>
+            <div class="meters">
+              <label>
+                <span id="score-label">Score target</span>
+                <progress id="score-progress" value="0" max="1"></progress>
+              </label>
+              <label>
+                <span id="color-label">Candy target</span>
+                <progress id="color-progress" value="0" max="1"></progress>
+              </label>
+            </div>
+          </div>
+          <div class="panel-block compact-grid">
+            <article>
+              <span>Streak</span>
+              <strong id="streak">x1</strong>
+            </article>
+            <article>
+              <span>Cleared</span>
+              <strong id="cleared">0</strong>
+            </article>
+            <article>
+              <span>Moves</span>
+              <strong id="moves">0</strong>
+            </article>
+            <article>
+              <span>Fever</span>
+              <strong id="fever">0%</strong>
+            </article>
+          </div>
+          <div class="panel-block controls">
+            <button id="new-game" type="button">New Game</button>
+            <button id="pause" type="button">Pause</button>
+            <button id="hint" type="button">Hint</button>
+            <button id="motion" type="button" aria-pressed="false">Motion On</button>
+            <button id="sound" type="button" aria-pressed="true">Sound On</button>
+          </div>
+        </aside>
+
+        <section class="board-card" aria-label="Candy board">
+          <div id="board" class="board" tabindex="0" role="application" aria-label="Sugar Rush Blitz board"></div>
+        </section>
+      </section>
     </main>
 
-    <section id="overlay" class="overlay hidden" aria-live="polite">
-      <article class="modal">
-        <h2 id="modal-title">Game Paused</h2>
-        <p id="modal-text">Tap Resume to continue.</p>
-        <div class="modal-stats" id="modal-stats"></div>
-        <div class="btn-row">
-          <button id="resume-btn" type="button">Resume</button>
-          <button id="play-again-btn" type="button">Play Again</button>
+    <section id="overlay" class="overlay" aria-live="polite">
+      <article class="dialog">
+        <p class="eyebrow" id="dialog-kicker">Match-3 Sprint</p>
+        <h2 id="dialog-title">Sugar Rush Blitz</h2>
+        <p id="dialog-copy">Chain matches, trigger specials, and finish level goals before the timer burns down.</p>
+        <div id="dialog-stats" class="dialog-stats"></div>
+        <div class="dialog-actions">
+          <button id="start" type="button">Start Game</button>
+          <button id="resume" type="button">Resume</button>
         </div>
       </article>
     </section>

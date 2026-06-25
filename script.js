@@ -1,710 +1,278 @@
-const BOARD_SIZE = 8;
-const CANDY_TYPES = 6;
-const BASE_TIME_SECONDS = 90;
-const TIME_BONUS_PER_LEVEL = 18;
-const SCORE_PER_CANDY = 50;
-const FALL_ANIMATION_MS = 280;
-const MATCH_ANIMATION_MS = 190;
-const CLEAR_DELAY_MS = 55;
-const STORAGE_STATS_KEY = "candy-session-stats-v2";
-const STORAGE_HIGH_SCORE_KEY = "candy-high-score";
+const SIZE = 8;
+const TYPES = 6;
+const START_TIME = 90;
+const MOVE_TIME = 260;
+const CLEAR_TIME = 210;
+const DROP_TIME = 300;
+const STORE_BEST = "sugar-rush-best-v3";
 
 const LEVELS = [
-  { seed: "blitz-1", scoreTarget: 5000, colorTarget: { type: 0, count: 20 } },
-  { seed: "blitz-2", scoreTarget: 12000, colorTarget: { type: 2, count: 26 } },
-  { seed: "blitz-3", scoreTarget: 22000, colorTarget: { type: 4, count: 30 } },
+  { score: 4500, type: 0, count: 18, time: 90 },
+  { score: 10500, type: 2, count: 24, time: 28 },
+  { score: 19000, type: 4, count: 30, time: 32 },
+  { score: 30000, type: 1, count: 36, time: 36 },
 ];
 
-const COLOR_NAMES = ["Pink", "Yellow", "Blue", "Green", "Purple", "Orange"];
+const TYPE_NAMES = ["Berry", "Lemon", "Fizz", "Lime", "Grape", "Tangerine"];
+const SPARKS = ["#f83f73", "#ffd349", "#20bfd1", "#8ec64b", "#9637b8", "#ff7b48"];
 
 const boardEl = document.getElementById("board");
 const scoreEl = document.getElementById("score");
 const highScoreEl = document.getElementById("high-score");
-const timeLeftEl = document.getElementById("time-left");
+const timeEl = document.getElementById("time-left");
 const levelEl = document.getElementById("level");
-const goalTextEl = document.getElementById("goal-text");
-const goalProgressEl = document.getElementById("goal-progress");
+const streakEl = document.getElementById("streak");
+const clearedEl = document.getElementById("cleared");
+const movesEl = document.getElementById("moves");
+const feverEl = document.getElementById("fever");
 const messageEl = document.getElementById("message");
-const resetBtn = document.getElementById("reset-btn");
-const pauseBtn = document.getElementById("pause-btn");
-const hintBtn = document.getElementById("hint-btn");
-const colorblindBtn = document.getElementById("colorblind-btn");
-const motionBtn = document.getElementById("motion-btn");
-const soundBtn = document.getElementById("sound-btn");
+const goalTitleEl = document.getElementById("goal-title");
+const goalCopyEl = document.getElementById("goal-copy");
+const scoreLabelEl = document.getElementById("score-label");
+const colorLabelEl = document.getElementById("color-label");
+const scoreProgressEl = document.getElementById("score-progress");
+const colorProgressEl = document.getElementById("color-progress");
 const overlayEl = document.getElementById("overlay");
-const modalTitleEl = document.getElementById("modal-title");
-const modalTextEl = document.getElementById("modal-text");
-const modalStatsEl = document.getElementById("modal-stats");
-const resumeBtn = document.getElementById("resume-btn");
-const playAgainBtn = document.getElementById("play-again-btn");
+const dialogKickerEl = document.getElementById("dialog-kicker");
+const dialogTitleEl = document.getElementById("dialog-title");
+const dialogCopyEl = document.getElementById("dialog-copy");
+const dialogStatsEl = document.getElementById("dialog-stats");
+const startBtn = document.getElementById("start");
+const resumeBtn = document.getElementById("resume");
+const newGameBtn = document.getElementById("new-game");
+const pauseBtn = document.getElementById("pause");
+const hintBtn = document.getElementById("hint");
+const motionBtn = document.getElementById("motion");
+const soundBtn = document.getElementById("sound");
 
-const isEntryMenuOpen = () => document.body.classList.contains("entry-menu-open");
-
-function injectEntryMenuStyles() {
-  if (document.getElementById("entryMenuStyles")) {
-    return;
-  }
-
-  const style = document.createElement("style");
-  style.id = "entryMenuStyles";
-  style.textContent = `
-    body.entry-menu-open {
-      overflow: hidden;
-    }
-
-    .entry-shell {
-      position: fixed;
-      inset: 0;
-      z-index: 120;
-      display: grid;
-      place-items: center;
-      padding: 16px;
-      padding-top: max(16px, env(safe-area-inset-top));
-      padding-right: max(16px, env(safe-area-inset-right));
-      padding-bottom: max(16px, env(safe-area-inset-bottom));
-      padding-left: max(16px, env(safe-area-inset-left));
-      background: rgba(20, 13, 23, 0.56);
-      backdrop-filter: blur(16px);
-      opacity: 1;
-      visibility: visible;
-      transition: opacity 220ms ease, visibility 220ms ease;
-    }
-
-    .entry-shell.is-hidden {
-      opacity: 0;
-      visibility: hidden;
-      pointer-events: none;
-    }
-
-    .entry-shell::before,
-    .entry-shell::after {
-      content: "";
-      position: absolute;
-      width: clamp(180px, 28vw, 320px);
-      aspect-ratio: 1;
-      border-radius: 50%;
-      filter: blur(10px);
-      opacity: 0.22;
-      animation: entryFloat 7s ease-in-out infinite;
-    }
-
-    .entry-shell::before {
-      top: 8%;
-      left: 6%;
-      background: radial-gradient(circle, var(--accent, #ef476f), transparent 62%);
-    }
-
-    .entry-shell::after {
-      right: 8%;
-      bottom: 6%;
-      animation-delay: -3s;
-      background: radial-gradient(circle, rgba(255, 202, 40, 0.9), transparent 62%);
-    }
-
-    .entry-panel {
-      position: relative;
-      width: min(540px, 100%);
-      padding: clamp(20px, 4vw, 30px);
-      border-radius: 30px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: linear-gradient(180deg, rgba(255, 249, 246, 0.96), rgba(255, 236, 241, 0.96));
-      box-shadow: 0 30px 80px rgba(43, 29, 48, 0.22);
-      overflow: hidden;
-      animation: entryRise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-
-    .entry-panel::before {
-      content: "";
-      position: absolute;
-      inset: 0 0 auto 0;
-      height: 120px;
-      background: radial-gradient(circle at top, rgba(255, 255, 255, 0.72), transparent 70%);
-      pointer-events: none;
-    }
-
-    .entry-screen {
-      position: relative;
-      z-index: 1;
-      display: none;
-      gap: 14px;
-    }
-
-    .entry-screen.is-active {
-      display: grid;
-      animation: entryCopy 0.24s ease;
-    }
-
-    .entry-kicker {
-      margin: 0;
-      font-size: 0.78rem;
-      font-weight: 800;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--accent, #ef476f);
-    }
-
-    .entry-panel h2 {
-      margin: 0;
-      font-size: clamp(1.8rem, 4vw, 2.6rem);
-      line-height: 1;
-      color: var(--text, #2b1d30);
-    }
-
-    .entry-copy {
-      margin: 0;
-      color: rgba(43, 29, 48, 0.76);
-      font-weight: 700;
-      line-height: 1.6;
-    }
-
-    .entry-guide {
-      display: grid;
-      gap: 10px;
-      padding: 12px 14px;
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.84);
-    }
-
-    .entry-guide p {
-      margin: 0;
-      color: rgba(43, 29, 48, 0.82);
-      font-weight: 600;
-      line-height: 1.55;
-    }
-
-    .entry-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 8px;
-    }
-
-    .entry-actions button {
-      flex: 1 1 180px;
-    }
-
-    .entry-secondary {
-      background: transparent !important;
-      color: var(--text, #2b1d30) !important;
-      border: 1px solid rgba(43, 29, 48, 0.16);
-      box-shadow: none !important;
-    }
-
-    @media (max-width: 480px) {
-      .entry-panel {
-        border-radius: 24px;
-        padding: 18px;
-      }
-
-      .entry-actions button {
-        flex-basis: 100%;
-      }
-    }
-
-    @keyframes entryFloat {
-      0%, 100% { transform: translateY(0px) scale(1); }
-      50% { transform: translateY(-14px) scale(1.06); }
-    }
-
-    @keyframes entryRise {
-      from { transform: translateY(24px) scale(0.98); opacity: 0; }
-      to { transform: translateY(0) scale(1); opacity: 1; }
-    }
-
-    @keyframes entryCopy {
-      from { transform: translateY(10px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-  `;
-  document.head.append(style);
-}
-
-function createEntryMenu({ title, kicker, description, tutorial, onStart }) {
-  injectEntryMenuStyles();
-
-  const shell = document.createElement("section");
-  shell.className = "entry-shell is-hidden";
-  shell.hidden = true;
-  shell.innerHTML = `
-    <article class="entry-panel" aria-label="${title} start screen">
-      <section class="entry-screen is-active" data-entry-screen="home">
-        <p class="entry-kicker">${kicker}</p>
-        <h2>${title}</h2>
-        <p class="entry-copy">${description}</p>
-        <div class="entry-actions">
-          <button type="button" data-entry-start>Start New Game</button>
-          <button type="button" class="entry-secondary" data-entry-tutorial>Tutorial / Help</button>
-        </div>
-      </section>
-      <section class="entry-screen" data-entry-screen="tutorial" hidden>
-        <p class="entry-kicker">Tutorial</p>
-        <h2>How To Play</h2>
-        <div class="entry-guide">${tutorial.map((item) => `<p>${item}</p>`).join("")}</div>
-        <div class="entry-actions">
-          <button type="button" class="entry-secondary" data-entry-back>Back</button>
-          <button type="button" data-entry-start>Start Game</button>
-        </div>
-      </section>
-    </article>
-  `;
-  document.body.append(shell);
-
-  const screens = [...shell.querySelectorAll(".entry-screen")];
-
-  const showScreen = (name) => {
-    screens.forEach((screen) => {
-      const active = screen.dataset.entryScreen === name;
-      screen.hidden = !active;
-      screen.classList.toggle("is-active", active);
-    });
-  };
-
-  const close = () => {
-    shell.classList.add("is-hidden");
-    document.body.classList.remove("entry-menu-open");
-    window.setTimeout(() => {
-      shell.hidden = true;
-    }, 220);
-  };
-
-  const open = (screen = "home") => {
-    showScreen(screen);
-    shell.hidden = false;
-    document.body.classList.add("entry-menu-open");
-    requestAnimationFrame(() => {
-      shell.classList.remove("is-hidden");
-    });
-  };
-
-  shell.querySelectorAll("[data-entry-start]").forEach((button) => {
-    button.addEventListener("click", () => {
-      onStart();
-      close();
-    });
-  });
-  shell.querySelector("[data-entry-tutorial]").addEventListener("click", () => {
-    showScreen("tutorial");
-  });
-  shell.querySelector("[data-entry-back]").addEventListener("click", () => {
-    showScreen("home");
-  });
-
-  open();
-}
-
-let board = [];
+let grid = [];
+let pieces = new Map();
+let tiles = [];
+let pieceLayer;
+let fxLayer;
+let nextId = 1;
 let score = 0;
-let highScore = Number(localStorage.getItem(STORAGE_HIGH_SCORE_KEY) || 0);
-let timeLeft = BASE_TIME_SECONDS;
-let currentLevel = 1;
-let levelState = { scoreStart: 0, colorProgress: 0 };
-let selectedCell = null;
+let highScore = Number(localStorage.getItem(STORE_BEST) || 0);
+let levelIndex = 0;
+let levelStartScore = 0;
+let colorProgress = 0;
+let timeLeft = START_TIME;
+let moves = 0;
+let cleared = 0;
+let streak = 1;
+let fever = 0;
+let selected = null;
+let cursor = { row: 0, col: 0 };
 let busy = false;
-let paused = false;
+let paused = true;
 let gameOver = false;
 let timerId = null;
-let comboLongestThisRun = 0;
-let totalMatchesThisRun = 0;
-let audioCtx = null;
-let warnedLowTime = false;
-let lowPerfMode = (navigator.deviceMemory || 4) <= 4;
-let soundEnabled = true;
+let hintTimer = null;
+let pointer = null;
 let reducedMotion = false;
-let colorblindEnabled = false;
-let hintTimerId = null;
-let hintCells = [];
-let keyboardCursor = { row: 0, col: 0 };
-let levelRng = Math.random;
-
-const persistentStats = loadPersistentStats();
-const cellEls = [];
-const candyEls = [];
-const specialEls = [];
-let pointerState = null;
-
-highScoreEl.textContent = String(highScore);
-
-function loadPersistentStats() {
-  const fallback = {
-    gamesPlayed: 0,
-    totalScore: 0,
-    longestComboEver: 0,
-    totalMatchesEver: 0,
-    scoreHistory: [],
-  };
-
-  try {
-    const raw = localStorage.getItem(STORAGE_STATS_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return {
-      ...fallback,
-      ...parsed,
-      scoreHistory: Array.isArray(parsed.scoreHistory)
-        ? parsed.scoreHistory.slice(-10)
-        : [],
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function savePersistentStats() {
-  localStorage.setItem(STORAGE_STATS_KEY, JSON.stringify(persistentStats));
-}
-
-function hashSeed(seedText) {
-  let hash = 2166136261;
-  for (let i = 0; i < seedText.length; i += 1) {
-    hash ^= seedText.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function mulberry32(seed) {
-  return function next() {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function applyLevelSeed(levelIndex) {
-  const level = LEVELS[Math.min(levelIndex - 1, LEVELS.length - 1)];
-  levelRng = mulberry32(hashSeed(level.seed));
-}
-
-function randomCandyType() {
-  return Math.floor(levelRng() * CANDY_TYPES);
-}
-
-function createCell(type = randomCandyType(), special = null) {
-  return { type, special };
-}
+let soundOn = true;
+let audioCtx = null;
 
 function keyOf(row, col) {
   return `${row}-${col}`;
 }
 
-function parseKey(key) {
-  const [row, col] = key.split("-").map(Number);
-  return { row, col };
+function delay(ms) {
+  if (reducedMotion) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function level() {
+  return LEVELS[Math.min(levelIndex, LEVELS.length - 1)];
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function inBounds(row, col) {
-  return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
-}
-
-function setMessage(text) {
-  messageEl.textContent = text;
-}
-
-function updateToggleLabels() {
-  colorblindBtn.textContent = `Colorblind: ${colorblindEnabled ? "On" : "Off"}`;
-  motionBtn.textContent = `Motion: ${reducedMotion ? "Off" : "On"}`;
-  soundBtn.textContent = `Sound: ${soundEnabled ? "On" : "Off"}`;
-}
-
-function applyAccessibilityClasses() {
-  document.body.classList.toggle("colorblind", colorblindEnabled);
-  document.body.classList.toggle("reduced-motion", reducedMotion);
-}
-
-function clearHintCells() {
-  for (const cell of hintCells) {
-    cellEls[cell.row][cell.col].classList.remove("hint");
-  }
-  hintCells = [];
-}
-
-function showHint(move = null) {
-  clearHintCells();
-  const found = move || findAnyValidMove();
-  if (!found) return;
-  hintCells = [found.from, found.to];
-  cellEls[found.from.row][found.from.col].classList.add("hint");
-  cellEls[found.to.row][found.to.col].classList.add("hint");
-}
-
-function scheduleHint() {
-  if (hintTimerId) clearTimeout(hintTimerId);
-  clearHintCells();
-  hintTimerId = setTimeout(() => {
-    if (!busy && !paused && !gameOver) showHint();
-  }, 4500);
-}
-
-function setKeyboardCursor(row, col) {
-  if (!inBounds(row, col)) return;
-  cellEls[keyboardCursor.row][keyboardCursor.col].classList.remove("keyboard-focus");
-  keyboardCursor = { row, col };
-  cellEls[row][col].classList.add("keyboard-focus");
-}
-
-function vibrate(pattern) {
-  if (navigator.vibrate) navigator.vibrate(pattern);
-}
-
-function ensureAudioContext() {
-  if (!soundEnabled) return;
-  if (!audioCtx) {
-    audioCtx = new AudioContext();
-  }
-  if (audioCtx.state === "suspended") {
-    audioCtx.resume();
-  }
-}
-
-function playTone(freq, durationMs, type = "sine", gain = 0.05) {
-  if (!audioCtx || !soundEnabled) return;
-  const now = audioCtx.currentTime;
-  const osc = audioCtx.createOscillator();
-  const amp = audioCtx.createGain();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, now);
-  amp.gain.setValueAtTime(gain, now);
-  amp.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
-  osc.connect(amp);
-  amp.connect(audioCtx.destination);
-  osc.start(now);
-  osc.stop(now + durationMs / 1000);
-}
-
-function playSwapSound() {
-  playTone(330, 70, "triangle", 0.03);
-}
-
-function playMatchSound(combo) {
-  const base = 410 + Math.min(combo, 6) * 40;
-  playTone(base, 120, "square", 0.04);
-}
-
-function playComboSound(combo) {
-  playTone(530 + Math.min(combo, 7) * 35, 140, "sawtooth", 0.045);
-}
-
-function playWarningSound() {
-  playTone(240, 130, "sine", 0.05);
-}
-
-function playEndSound() {
-  playTone(280, 100, "triangle", 0.045);
-  setTimeout(() => playTone(220, 160, "triangle", 0.04), 90);
-}
-
-function buildBoardDom() {
-  boardEl.innerHTML = "";
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    cellEls[row] = [];
-    candyEls[row] = [];
-    specialEls[row] = [];
-
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      const cell = document.createElement("button");
-      cell.type = "button";
-      cell.className = "cell";
-      cell.dataset.row = String(row);
-      cell.dataset.col = String(col);
-      cell.setAttribute("aria-label", `Candy at row ${row + 1}, column ${col + 1}`);
-
-      const candy = document.createElement("span");
-      candy.className = "candy";
-
-      const special = document.createElement("span");
-      special.className = "special";
-
-      cell.appendChild(candy);
-      cell.appendChild(special);
-      boardEl.appendChild(cell);
-
-      cellEls[row][col] = cell;
-      candyEls[row][col] = candy;
-      specialEls[row][col] = special;
-    }
-  }
-}
-
-function refreshCell(row, col, dropRows = 0) {
-  const cellData = board[row][col];
-  const candy = candyEls[row][col];
-  const special = specialEls[row][col];
-
-  if (!cellData) {
-    candy.style.visibility = "hidden";
-    candy.className = "candy";
-    special.className = "special";
-    return;
-  }
-
-  candy.style.visibility = "visible";
-  candy.className = `candy type-${cellData.type ?? 0}`;
-
-  if (dropRows > 0) {
-    candy.classList.add("falling");
-    const stepPx = boardEl.clientWidth / BOARD_SIZE;
-    candy.style.setProperty("--fall-distance", `${Math.round(stepPx * dropRows)}px`);
-    candy.style.setProperty("--fall-turns", `${Math.max(0.2, dropRows * 0.34)}turn`);
-  } else {
-    candy.style.removeProperty("--fall-distance");
-    candy.style.removeProperty("--fall-turns");
-  }
-
-  special.className = "special";
-  if (cellData.special === "striped-h") {
-    special.classList.add("striped-h");
-  } else if (cellData.special === "striped-v") {
-    special.classList.add("striped-v");
-  } else if (cellData.special === "wrapped") {
-    special.classList.add("wrapped");
-  } else if (cellData.special === "color-bomb") {
-    special.classList.add("color-bomb");
-    candy.className = "candy";
-  }
-}
-
-function refreshBoard(dropMap = null, changedKeys = null) {
-  if (!changedKeys) {
-    for (let row = 0; row < BOARD_SIZE; row += 1) {
-      for (let col = 0; col < BOARD_SIZE; col += 1) {
-        refreshCell(row, col, dropMap?.[row]?.[col] || 0);
-      }
-    }
-    return;
-  }
-
-  for (const key of changedKeys) {
-    const { row, col } = parseKey(key);
-    refreshCell(row, col, dropMap?.[row]?.[col] || 0);
-  }
-}
-
-function clearSelection() {
-  if (selectedCell) {
-    cellEls[selectedCell.row][selectedCell.col].classList.remove("selected");
-  }
-  selectedCell = null;
-}
-
-function setSelected(row, col) {
-  clearSelection();
-  selectedCell = { row, col };
-  cellEls[row][col].classList.add("selected");
-}
-
-function updateHud() {
-  scoreEl.textContent = String(score);
-  timeLeftEl.textContent = String(timeLeft);
-  levelEl.textContent = String(currentLevel);
-
-  if (score > highScore) {
-    highScore = score;
-    highScoreEl.textContent = String(highScore);
-    localStorage.setItem(STORAGE_HIGH_SCORE_KEY, String(highScore));
-  }
-
-  updateGoalsHud();
-}
-
-function currentLevelConfig() {
-  return LEVELS[Math.min(currentLevel - 1, LEVELS.length - 1)];
-}
-
-function updateGoalsHud() {
-  const goal = currentLevelConfig();
-  const colorName = COLOR_NAMES[goal.colorTarget.type];
-  goalTextEl.textContent = `Goal: ${goal.scoreTarget.toLocaleString()} points + clear ${goal.colorTarget.count} ${colorName}.`;
-
-  const scoreProgress = Math.max(0, score - levelState.scoreStart);
-  goalProgressEl.textContent = `Progress: ${scoreProgress.toLocaleString()} / ${goal.scoreTarget.toLocaleString()} | ${levelState.colorProgress} / ${goal.colorTarget.count} ${colorName}`;
+  return row >= 0 && row < SIZE && col >= 0 && col < SIZE;
 }
 
 function areAdjacent(a, b) {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
 }
 
-function swapCells(a, b) {
-  const temp = board[a.row][a.col];
-  board[a.row][a.col] = board[b.row][b.col];
-  board[b.row][b.col] = temp;
+function cellSize() {
+  return Number(getComputedStyle(boardEl).getPropertyValue("--cell").replace("px", "")) || 64;
 }
 
-function createRandomBoard() {
-  board = Array.from({ length: BOARD_SIZE }, () =>
-    Array.from({ length: BOARD_SIZE }, () => createCell())
-  );
+function updateBoardMetrics() {
+  const gridInset = window.matchMedia("(max-width: 640px)").matches ? 12 : 16;
+  const usable = boardEl.clientWidth - gridInset;
+  boardEl.style.setProperty("--cell", `${usable / SIZE}px`);
+  for (const piece of pieces.values()) placePiece(piece);
+}
 
-  while (findMatchData().matches.size > 0 || !hasValidMove()) {
-    for (let row = 0; row < BOARD_SIZE; row += 1) {
-      for (let col = 0; col < BOARD_SIZE; col += 1) {
-        board[row][col] = createCell();
-      }
+function buildBoardShell() {
+  boardEl.innerHTML = "";
+  const boardGrid = document.createElement("div");
+  boardGrid.className = "board-grid";
+  pieceLayer = document.createElement("div");
+  pieceLayer.className = "piece-layer";
+  fxLayer = document.createElement("div");
+  fxLayer.className = "fx-layer";
+  tiles = [];
+
+  for (let row = 0; row < SIZE; row += 1) {
+    tiles[row] = [];
+    for (let col = 0; col < SIZE; col += 1) {
+      const tile = document.createElement("span");
+      tile.className = "tile";
+      tile.dataset.row = String(row);
+      tile.dataset.col = String(col);
+      boardGrid.append(tile);
+      tiles[row][col] = tile;
     }
+  }
+
+  boardEl.append(boardGrid, pieceLayer, fxLayer);
+}
+
+function randomType() {
+  return Math.floor(Math.random() * TYPES);
+}
+
+function safeRandomType(row, col) {
+  let type = randomType();
+  let guard = 0;
+  while (guard < 20) {
+    const left = col >= 2 && grid[row][col - 1]?.type === type && grid[row][col - 2]?.type === type;
+    const up = row >= 2 && grid[row - 1][col]?.type === type && grid[row - 2][col]?.type === type;
+    if (!left && !up) return type;
+    type = randomType();
+    guard += 1;
+  }
+  return type;
+}
+
+function createPiece(row, col, type = randomType(), special = null) {
+  const id = nextId;
+  nextId += 1;
+  const el = document.createElement("span");
+  el.className = "piece";
+  el.dataset.id = String(id);
+  el.innerHTML = `<span class="piece-inner"></span>`;
+  pieceLayer.append(el);
+  const piece = { id, row, col, type, special, el };
+  pieces.set(id, piece);
+  applyPieceClass(piece);
+  placePiece(piece);
+  return piece;
+}
+
+function applyPieceClass(piece) {
+  piece.el.className = `piece type-${piece.type}${piece.special ? ` ${piece.special}` : ""}`;
+}
+
+function placePiece(piece, row = piece.row, col = piece.col) {
+  const size = cellSize();
+  piece.el.style.setProperty("--x", `${col * size}px`);
+  piece.el.style.setProperty("--y", `${row * size}px`);
+}
+
+function movePiece(piece, row, col) {
+  piece.row = row;
+  piece.col = col;
+  placePiece(piece);
+}
+
+function clearTileStates() {
+  for (const row of tiles) {
+    for (const tile of row) tile.className = "tile";
   }
 }
 
-function findMatchData() {
+function refreshTileStates() {
+  clearTileStates();
+  if (selected) tiles[selected.row][selected.col].classList.add("selected");
+  tiles[cursor.row][cursor.col].classList.add("cursor");
+}
+
+function makeBoard() {
+  pieces.clear();
+  pieceLayer.innerHTML = "";
+  grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+
+  do {
+    for (const piece of pieces.values()) piece.el.remove();
+    pieces.clear();
+    grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+    for (let row = 0; row < SIZE; row += 1) {
+      for (let col = 0; col < SIZE; col += 1) {
+        const piece = createPiece(row, col, safeRandomType(row, col));
+        grid[row][col] = piece;
+      }
+    }
+  } while (!findValidMove());
+}
+
+function swapGrid(a, b) {
+  const first = grid[a.row][a.col];
+  const second = grid[b.row][b.col];
+  grid[a.row][a.col] = second;
+  grid[b.row][b.col] = first;
+  movePiece(first, b.row, b.col);
+  movePiece(second, a.row, a.col);
+}
+
+function findMatches() {
   const matches = new Set();
   const groups = [];
 
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
+  for (let row = 0; row < SIZE; row += 1) {
     let start = 0;
-    while (start < BOARD_SIZE) {
-      const first = board[row][start];
-      if (!first || first.special === "color-bomb" || first.type === null) {
+    while (start < SIZE) {
+      const first = grid[row][start];
+      if (!first || first.special === "bomb") {
         start += 1;
         continue;
       }
-
       let end = start + 1;
-      while (end < BOARD_SIZE) {
-        const next = board[row][end];
-        if (!next || next.special === "color-bomb" || next.type !== first.type) break;
+      while (end < SIZE) {
+        const next = grid[row][end];
+        if (!next || next.special === "bomb" || next.type !== first.type) break;
         end += 1;
       }
-
-      const len = end - start;
-      if (len >= 3) {
+      if (end - start >= 3) {
         const cells = [];
         for (let col = start; col < end; col += 1) {
           matches.add(keyOf(row, col));
           cells.push({ row, col });
         }
-        groups.push({ dir: "h", len, cells });
+        groups.push({ dir: "h", len: end - start, type: first.type, cells });
       }
-
       start = end;
     }
   }
 
-  for (let col = 0; col < BOARD_SIZE; col += 1) {
+  for (let col = 0; col < SIZE; col += 1) {
     let start = 0;
-    while (start < BOARD_SIZE) {
-      const first = board[start][col];
-      if (!first || first.special === "color-bomb" || first.type === null) {
+    while (start < SIZE) {
+      const first = grid[start][col];
+      if (!first || first.special === "bomb") {
         start += 1;
         continue;
       }
-
       let end = start + 1;
-      while (end < BOARD_SIZE) {
-        const next = board[end][col];
-        if (!next || next.special === "color-bomb" || next.type !== first.type) break;
+      while (end < SIZE) {
+        const next = grid[end][col];
+        if (!next || next.special === "bomb" || next.type !== first.type) break;
         end += 1;
       }
-
-      const len = end - start;
-      if (len >= 3) {
+      if (end - start >= 3) {
         const cells = [];
         for (let row = start; row < end; row += 1) {
           matches.add(keyOf(row, col));
           cells.push({ row, col });
         }
-        groups.push({ dir: "v", len, cells });
+        groups.push({ dir: "v", len: end - start, type: first.type, cells });
       }
-
       start = end;
     }
   }
@@ -712,897 +280,568 @@ function findMatchData() {
   return { matches, groups };
 }
 
-function tryColorBombSwap(a, b) {
-  const cellA = board[a.row][a.col];
-  const cellB = board[b.row][b.col];
-
-  const bombA = cellA?.special === "color-bomb";
-  const bombB = cellB?.special === "color-bomb";
-  if (!bombA && !bombB) return null;
-
-  const clearSet = new Set();
-
-  if (bombA && bombB) {
-    for (let row = 0; row < BOARD_SIZE; row += 1) {
-      for (let col = 0; col < BOARD_SIZE; col += 1) {
-        clearSet.add(keyOf(row, col));
-      }
-    }
-    return { clearSet, scoreMult: 3 };
-  }
-
-  const targetType = bombA ? cellB?.type : cellA?.type;
-  if (targetType === null || targetType === undefined) {
-    clearSet.add(keyOf(a.row, a.col));
-    clearSet.add(keyOf(b.row, b.col));
-    return { clearSet, scoreMult: 1.5 };
-  }
-
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      const cell = board[row][col];
-      if (cell && cell.type === targetType) {
-        clearSet.add(keyOf(row, col));
-      }
-    }
-  }
-
-  clearSet.add(keyOf(a.row, a.col));
-  clearSet.add(keyOf(b.row, b.col));
-
-  return { clearSet, scoreMult: 2 };
-}
-
-function addAreaToSet(set, centerRow, centerCol, radius) {
-  for (let row = centerRow - radius; row <= centerRow + radius; row += 1) {
-    for (let col = centerCol - radius; col <= centerCol + radius; col += 1) {
-      if (inBounds(row, col)) set.add(keyOf(row, col));
-    }
-  }
-}
-
-function trySpecialComboSwap(a, b) {
-  const first = board[a.row][a.col];
-  const second = board[b.row][b.col];
-  if (!first?.special || !second?.special) return null;
-
-  const clearSet = new Set([keyOf(a.row, a.col), keyOf(b.row, b.col)]);
-  const specials = [first.special, second.special].sort().join("+");
-
-  if (specials === "striped-h+striped-v" || specials === "striped-h+striped-h" || specials === "striped-v+striped-v") {
-    for (let c = 0; c < BOARD_SIZE; c += 1) {
-      clearSet.add(keyOf(a.row, c));
-      clearSet.add(keyOf(b.row, c));
-    }
-    for (let r = 0; r < BOARD_SIZE; r += 1) {
-      clearSet.add(keyOf(r, a.col));
-      clearSet.add(keyOf(r, b.col));
-    }
-    return { clearSet, scoreMult: 2.2 };
-  }
-
-  if (specials.includes("wrapped") && specials.includes("striped")) {
-    for (let r = -1; r <= 1; r += 1) {
-      for (let c = 0; c < BOARD_SIZE; c += 1) {
-        if (inBounds(a.row + r, c)) clearSet.add(keyOf(a.row + r, c));
-      }
-    }
-    for (let c = -1; c <= 1; c += 1) {
-      for (let r = 0; r < BOARD_SIZE; r += 1) {
-        if (inBounds(r, a.col + c)) clearSet.add(keyOf(r, a.col + c));
-      }
-    }
-    return { clearSet, scoreMult: 2.6 };
-  }
-
-  if (specials === "wrapped+wrapped") {
-    addAreaToSet(clearSet, a.row, a.col, 2);
-    addAreaToSet(clearSet, b.row, b.col, 2);
-    return { clearSet, scoreMult: 2.8 };
-  }
-
-  if (specials.includes("color-bomb")) {
-    const source = first.special === "color-bomb" ? second : first;
-    if (source?.type === null || source?.type === undefined) {
-      for (let row = 0; row < BOARD_SIZE; row += 1) {
-        for (let col = 0; col < BOARD_SIZE; col += 1) {
-          clearSet.add(keyOf(row, col));
-        }
-      }
-      return { clearSet, scoreMult: 3.2 };
-    }
-
-    for (let row = 0; row < BOARD_SIZE; row += 1) {
-      for (let col = 0; col < BOARD_SIZE; col += 1) {
-        const cell = board[row][col];
-        if (cell?.type === source.type) {
-          if (source.special && source.special !== "color-bomb") {
-            cell.special = source.special;
-          }
-          clearSet.add(keyOf(row, col));
-        }
-      }
-    }
-    return { clearSet, scoreMult: 3 };
-  }
-
-  return null;
-}
-
-function determineSpecialToCreate(matchData, preferredCells) {
-  const cellHits = new Map();
-  let best = null;
+function chooseSpecial(matchData, preferred) {
+  let chosen = null;
+  const hits = new Map();
 
   for (const group of matchData.groups) {
     for (const cell of group.cells) {
       const key = keyOf(cell.row, cell.col);
-      if (!cellHits.has(key)) {
-        cellHits.set(key, { h: 0, v: 0, row: cell.row, col: cell.col });
-      }
-      const entry = cellHits.get(key);
-      if (group.dir === "h") entry.h += 1;
-      else entry.v += 1;
+      const hit = hits.get(key) || { row: cell.row, col: cell.col, h: 0, v: 0, type: group.type };
+      if (group.dir === "h") hit.h += 1;
+      else hit.v += 1;
+      hits.set(key, hit);
     }
 
     if (group.len >= 5) {
-      const source = choosePreferredCell(group.cells, preferredCells) || group.cells[2];
-      best = { row: source.row, col: source.col, special: "color-bomb", type: null, priority: 4 };
-    } else if (!best && group.len === 4) {
-      const source = choosePreferredCell(group.cells, preferredCells) || group.cells[1];
-      best = {
-        row: source.row,
-        col: source.col,
-        special: group.dir === "h" ? "striped-h" : "striped-v",
-        type: board[source.row][source.col]?.type ?? randomCandyType(),
-        priority: 2,
-      };
+      const source = group.cells.find((cell) => preferred.has(keyOf(cell.row, cell.col))) || group.cells[2];
+      chosen = { ...source, type: group.type, special: "bomb", priority: 4 };
+    } else if (group.len === 4 && (!chosen || chosen.priority < 2)) {
+      const source = group.cells.find((cell) => preferred.has(keyOf(cell.row, cell.col))) || group.cells[1];
+      chosen = { ...source, type: group.type, special: group.dir === "h" ? "striped-h" : "striped-v", priority: 2 };
     }
   }
 
-  for (const entry of cellHits.values()) {
-    if (entry.h > 0 && entry.v > 0) {
-      const priority = 3;
-      if (!best || priority > best.priority) {
-        best = {
-          row: entry.row,
-          col: entry.col,
-          special: "wrapped",
-          type: board[entry.row][entry.col]?.type ?? randomCandyType(),
-          priority,
-        };
-      }
+  for (const hit of hits.values()) {
+    if (hit.h && hit.v && (!chosen || chosen.priority < 3)) {
+      chosen = { row: hit.row, col: hit.col, type: hit.type, special: "wrapped", priority: 3 };
     }
   }
 
-  if (!best) return null;
-  return { row: best.row, col: best.col, special: best.special, type: best.type };
+  return chosen;
 }
 
-function choosePreferredCell(cells, preferredCells) {
-  for (const cell of cells) {
-    if (preferredCells.has(keyOf(cell.row, cell.col))) return cell;
-  }
-  return null;
+function addCell(set, row, col) {
+  if (inBounds(row, col)) set.add(keyOf(row, col));
 }
 
-function expandSpecialEffects(seedSet) {
-  const clearSet = new Set(seedSet);
+function expandSpecials(seedSet) {
+  const out = new Set(seedSet);
   const queue = [...seedSet];
-  const activated = new Set();
+  const seen = new Set();
 
   while (queue.length) {
     const key = queue.shift();
-    if (activated.has(key)) continue;
-    activated.add(key);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const [row, col] = key.split("-").map(Number);
+    const piece = grid[row][col];
+    if (!piece?.special) continue;
 
-    const { row, col } = parseKey(key);
-    const cell = board[row][col];
-    if (!cell || !cell.special) continue;
-
-    const add = (r, c) => {
-      if (!inBounds(r, c)) return;
-      const next = keyOf(r, c);
-      if (!clearSet.has(next)) {
-        clearSet.add(next);
-        queue.push(next);
-      }
-    };
-
-    if (cell.special === "striped-h") {
-      for (let c = 0; c < BOARD_SIZE; c += 1) add(row, c);
-    } else if (cell.special === "striped-v") {
-      for (let r = 0; r < BOARD_SIZE; r += 1) add(r, col);
-    } else if (cell.special === "wrapped") {
+    const before = out.size;
+    if (piece.special === "striped-h") {
+      for (let c = 0; c < SIZE; c += 1) addCell(out, row, c);
+    } else if (piece.special === "striped-v") {
+      for (let r = 0; r < SIZE; r += 1) addCell(out, r, col);
+    } else if (piece.special === "wrapped") {
       for (let r = row - 1; r <= row + 1; r += 1) {
-        for (let c = col - 1; c <= col + 1; c += 1) {
-          add(r, c);
+        for (let c = col - 1; c <= col + 1; c += 1) addCell(out, r, c);
+      }
+    } else if (piece.special === "bomb") {
+      const target = [...out].map((item) => item.split("-").map(Number))
+        .map(([r, c]) => grid[r][c])
+        .find((item) => item && item.id !== piece.id && item.special !== "bomb");
+      const type = target?.type ?? piece.type;
+      for (let r = 0; r < SIZE; r += 1) {
+        for (let c = 0; c < SIZE; c += 1) {
+          if (grid[r][c]?.type === type || grid[r][c]?.special === "bomb") addCell(out, r, c);
         }
       }
-    } else if (cell.special === "color-bomb") {
-      for (let r = 0; r < BOARD_SIZE; r += 1) {
-        for (let c = 0; c < BOARD_SIZE; c += 1) {
-          add(r, c);
-        }
+    }
+
+    if (out.size > before) {
+      for (const next of out) {
+        if (!seen.has(next)) queue.push(next);
       }
     }
   }
 
-  return clearSet;
+  return out;
 }
 
-function showFloatingText(text, row, col, extraClass = "") {
-  const bubble = document.createElement("span");
-  bubble.className = `floating-text ${extraClass}`.trim();
-  bubble.textContent = text;
-  bubble.style.gridRowStart = String(row + 1);
-  bubble.style.gridColumnStart = String(col + 1);
-  boardEl.appendChild(bubble);
-  bubble.addEventListener("animationend", () => bubble.remove(), { once: true });
-}
-
-function showClearSpark(row, col, candyType = 0) {
-  const cell = cellEls[row]?.[col];
-  if (!cell) return;
-
-  const boardRect = boardEl.getBoundingClientRect();
-  const cellRect = cell.getBoundingClientRect();
-
-  const spark = document.createElement("span");
-  spark.className = `impact-spark type-${candyType}`;
-  spark.style.left = `${cellRect.left - boardRect.left + cellRect.width / 2}px`;
-  spark.style.top = `${cellRect.top - boardRect.top + cellRect.height / 2}px`;
-  boardEl.appendChild(spark);
-  spark.addEventListener("animationend", () => spark.remove(), { once: true });
-}
-
-function triggerBoardImpact(clearCount) {
-  if (clearCount < 4) return;
-  boardEl.classList.remove("combo-impact");
-  void boardEl.offsetWidth;
-  boardEl.classList.add("combo-impact");
-  boardEl.addEventListener(
-    "animationend",
-    () => boardEl.classList.remove("combo-impact"),
-    { once: true }
-  );
-}
-
-async function animateMatches(clearSet, combo) {
-  let rowSum = 0;
-  let colSum = 0;
-  const sparkStride = lowPerfMode ? 3 : clearSet.size > 24 ? 2 : 1;
-  let index = 0;
-
-  for (const key of clearSet) {
-    const { row, col } = parseKey(key);
-    const candyType = board[row][col]?.type ?? 0;
-    rowSum += row;
-    colSum += col;
-    const candy = candyEls[row][col];
-    if (candy) candy.classList.add("matched");
-    if (index % sparkStride === 0) {
-      showClearSpark(row, col, candyType);
-    }
-    index += 1;
-  }
-
-  const count = clearSet.size || 1;
-  const centerRow = Math.round(rowSum / count);
-  const centerCol = Math.round(colSum / count);
-  const points = clearSet.size * SCORE_PER_CANDY * combo;
-  showFloatingText(`+${points}`, centerRow, centerCol);
-  if (combo > 1) {
-    showFloatingText(`Combo x${combo}`, Math.max(0, centerRow - 1), centerCol, "combo");
-    playComboSound(combo);
-  } else {
-    playMatchSound(combo);
-  }
-
-  if (combo >= 3) vibrate([12, 35, 12]);
-  else vibrate(10);
-  triggerBoardImpact(clearSet.size);
-
-  await delay(MATCH_ANIMATION_MS);
-}
-
-function clearCellsAndApplyScore(clearSet, combo, scoreMultiplier = 1) {
-  let colorsCleared = 0;
-  let specialsCleared = 0;
-
-  for (const key of clearSet) {
-    const { row, col } = parseKey(key);
-    const cell = board[row][col];
-    if (cell && cell.type !== null && cell.type === currentLevelConfig().colorTarget.type) {
-      colorsCleared += 1;
-    }
-    if (cell?.special) specialsCleared += 1;
-    board[row][col] = null;
-  }
-
-  levelState.colorProgress += colorsCleared;
-  totalMatchesThisRun += clearSet.size;
-  comboLongestThisRun = Math.max(comboLongestThisRun, combo);
-
-  const basePoints = clearSet.size * SCORE_PER_CANDY;
-  const specialBonus = specialsCleared * 130;
-  const comboMultiplier = 1 + (combo - 1) * 0.35;
-  const pressureBonus = timeLeft <= 15 ? Math.round(basePoints * 0.15) : 0;
-  score += Math.round((basePoints + specialBonus + pressureBonus) * comboMultiplier * scoreMultiplier);
-}
-
-function collapseBoard() {
-  const dropMap = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(0));
-
-  for (let col = 0; col < BOARD_SIZE; col += 1) {
-    let pointer = BOARD_SIZE - 1;
-
-    for (let row = BOARD_SIZE - 1; row >= 0; row -= 1) {
-      const cell = board[row][col];
-      if (cell) {
-        const dropRows = pointer - row;
-        board[pointer][col] = cell;
-        dropMap[pointer][col] = dropRows;
-        if (pointer !== row) board[row][col] = null;
-        pointer -= 1;
-      }
-    }
-
-    const generatedRows = pointer + 1;
-    while (pointer >= 0) {
-      board[pointer][col] = createCell();
-      dropMap[pointer][col] = generatedRows;
-      pointer -= 1;
-    }
-  }
-
-  return dropMap;
-}
-
-function boardSnapshot() {
-  return board.map((row) => row.map((cell) => (cell ? { ...cell } : null)));
-}
-
-function restoreSnapshot(snapshot) {
-  board = snapshot.map((row) => row.map((cell) => (cell ? { ...cell } : null)));
-}
-
-function findAnyValidMove() {
-  const directions = [
-    [0, 1],
-    [1, 0],
-  ];
-
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      const cell = board[row][col];
-      if (!cell) continue;
-
-      for (const [dr, dc] of directions) {
+function findValidMove() {
+  const dirs = [[0, 1], [1, 0]];
+  for (let row = 0; row < SIZE; row += 1) {
+    for (let col = 0; col < SIZE; col += 1) {
+      for (const [dr, dc] of dirs) {
         const nr = row + dr;
         const nc = col + dc;
         if (!inBounds(nr, nc)) continue;
-        const other = board[nr][nc];
-        if (!other) continue;
-
-        if (cell.special === "color-bomb" || other.special === "color-bomb") {
+        if (grid[row][col]?.special === "bomb" || grid[nr][nc]?.special === "bomb") {
           return { from: { row, col }, to: { row: nr, col: nc } };
         }
-
-        swapCells({ row, col }, { row: nr, col: nc });
-        const hasMatch = findMatchData().matches.size > 0;
-        swapCells({ row, col }, { row: nr, col: nc });
-
-        if (hasMatch) return { from: { row, col }, to: { row: nr, col: nc } };
+        swapGrid({ row, col }, { row: nr, col: nc });
+        const has = findMatches().matches.size > 0;
+        swapGrid({ row, col }, { row: nr, col: nc });
+        if (has) return { from: { row, col }, to: { row: nr, col: nc } };
       }
     }
   }
-
   return null;
 }
 
-function hasValidMove() {
-  return Boolean(findAnyValidMove());
+function computePoints(clearCount, specialsCleared) {
+  const base = clearCount * 60;
+  const special = specialsCleared * 220;
+  const streakBonus = Math.max(0, streak - 1) * clearCount * 30;
+  const pressure = timeLeft <= 12 ? Math.round(base * 0.2) : 0;
+  const feverBonus = Math.round((base + special) * fever * 0.5);
+  return base + special + streakBonus + pressure + feverBonus;
+}
+
+function addFloat(text, row, col) {
+  const size = cellSize();
+  const el = document.createElement("span");
+  el.className = "float-text";
+  el.textContent = text;
+  el.style.left = `${col * size + size / 2}px`;
+  el.style.top = `${row * size + size / 2}px`;
+  fxLayer.append(el);
+  el.addEventListener("animationend", () => el.remove(), { once: true });
+}
+
+function addBurst(row, col, type) {
+  const size = cellSize();
+  const el = document.createElement("span");
+  el.className = "burst";
+  el.style.left = `${col * size + size / 2}px`;
+  el.style.top = `${row * size + size / 2}px`;
+  el.style.setProperty("--spark", SPARKS[type] || "#fff");
+  fxLayer.append(el);
+  el.addEventListener("animationend", () => el.remove(), { once: true });
+}
+
+function ensureAudio() {
+  if (!soundOn) return;
+  if (!audioCtx) audioCtx = new AudioContext();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+
+function tone(freq, ms, type = "sine", gain = 0.035) {
+  if (!soundOn || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const amp = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  amp.gain.setValueAtTime(gain, now);
+  amp.gain.exponentialRampToValueAtTime(0.0001, now + ms / 1000);
+  osc.connect(amp);
+  amp.connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + ms / 1000);
+}
+
+async function clearPieces(clearSet, specialToCreate) {
+  let specialsCleared = 0;
+  let targetCleared = 0;
+  let rowSum = 0;
+  let colSum = 0;
+  const keptKey = specialToCreate ? keyOf(specialToCreate.row, specialToCreate.col) : null;
+
+  for (const key of clearSet) {
+    const [row, col] = key.split("-").map(Number);
+    const piece = grid[row][col];
+    if (!piece) continue;
+    rowSum += row;
+    colSum += col;
+    if (piece.special) specialsCleared += 1;
+    if (piece.type === level().type) targetCleared += 1;
+    addBurst(row, col, piece.type);
+    if (key !== keptKey) piece.el.classList.add("clear");
+  }
+
+  await delay(CLEAR_TIME);
+
+  for (const key of clearSet) {
+    const [row, col] = key.split("-").map(Number);
+    const piece = grid[row][col];
+    if (!piece) continue;
+    if (key === keptKey) {
+      piece.type = specialToCreate.type;
+      piece.special = specialToCreate.special;
+      applyPieceClass(piece);
+      continue;
+    }
+    piece.el.remove();
+    pieces.delete(piece.id);
+    grid[row][col] = null;
+  }
+
+  const points = computePoints(clearSet.size, specialsCleared);
+  score += points;
+  cleared += clearSet.size;
+  colorProgress += targetCleared;
+  fever = clamp(fever + clearSet.size / 90 + specialsCleared * 0.08, 0, 1);
+  if (clearSet.size) addFloat(`+${points}`, rowSum / clearSet.size, colSum / clearSet.size);
+  tone(380 + streak * 35, 120, streak > 2 ? "square" : "triangle");
+  updateHud();
+}
+
+async function collapseBoard() {
+  for (let col = 0; col < SIZE; col += 1) {
+    let write = SIZE - 1;
+    for (let row = SIZE - 1; row >= 0; row -= 1) {
+      const piece = grid[row][col];
+      if (!piece) continue;
+      if (write !== row) {
+        grid[write][col] = piece;
+        grid[row][col] = null;
+        movePiece(piece, write, col);
+      }
+      write -= 1;
+    }
+
+    for (let row = write; row >= 0; row -= 1) {
+      const piece = createPiece(row, col, randomType());
+      grid[row][col] = piece;
+      placePiece(piece, row - (write + 1), col);
+      requestAnimationFrame(() => movePiece(piece, row, col));
+    }
+  }
+  await delay(DROP_TIME);
+}
+
+async function resolveBoard(preferred = new Set()) {
+  let cascades = 0;
+  while (true) {
+    const matchData = findMatches();
+    if (!matchData.matches.size) break;
+    cascades += 1;
+    streak = Math.max(streak, cascades);
+    const special = chooseSpecial(matchData, preferred);
+    const clearSet = expandSpecials(matchData.matches);
+    await clearPieces(clearSet, special);
+    await collapseBoard();
+    preferred = new Set();
+  }
+
+  if (cascades > 1) addFloat(`Streak x${cascades}`, 3.5, 3.5);
+  if (!findValidMove()) reshuffleBoard();
+  if (score - levelStartScore >= level().score && colorProgress >= level().count) advanceLevel();
+  updateHud();
 }
 
 function reshuffleBoard() {
   const pool = [];
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      const cell = board[row][col];
-      if (cell) pool.push(cell);
+  for (let row = 0; row < SIZE; row += 1) {
+    for (let col = 0; col < SIZE; col += 1) pool.push(grid[row][col]);
+  }
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  let idx = 0;
+  for (let row = 0; row < SIZE; row += 1) {
+    for (let col = 0; col < SIZE; col += 1) {
+      const piece = pool[idx];
+      grid[row][col] = piece;
+      movePiece(piece, row, col);
+      idx += 1;
     }
   }
-
-  let tries = 0;
-  do {
-    tries += 1;
-    for (let i = pool.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(levelRng() * (i + 1));
-      const tmp = pool[i];
-      pool[i] = pool[j];
-      pool[j] = tmp;
-    }
-
-    let idx = 0;
-    for (let row = 0; row < BOARD_SIZE; row += 1) {
-      for (let col = 0; col < BOARD_SIZE; col += 1) {
-        board[row][col] = { ...pool[idx] };
-        idx += 1;
-      }
-    }
-  } while ((findMatchData().matches.size > 0 || !hasValidMove()) && tries < 20);
-
-  refreshBoard();
   setMessage("No moves left. Board reshuffled.");
 }
 
-function shouldAdvanceLevel() {
-  const goal = currentLevelConfig();
-  const scoreProgress = score - levelState.scoreStart;
-  return scoreProgress >= goal.scoreTarget && levelState.colorProgress >= goal.colorTarget.count;
-}
-
-function advanceLevel() {
-  if (currentLevel >= LEVELS.length) {
-    setMessage("Final level complete. Push for a huge score before time runs out.");
-    showFloatingText("Level Complete!", 3, 3, "combo");
-    return;
-  }
-
-  currentLevel += 1;
-  applyLevelSeed(currentLevel);
-  levelState = { scoreStart: score, colorProgress: 0 };
-  timeLeft += TIME_BONUS_PER_LEVEL;
-  warnedLowTime = false;
-  createRandomBoard();
-  refreshBoard();
-  showFloatingText(`Level ${currentLevel}!`, 3, 3, "combo");
-  setMessage(`Level ${currentLevel} started. +${TIME_BONUS_PER_LEVEL}s bonus.`);
-}
-
-async function resolveBoard(preferredCells = new Set(), scoreMultiplier = 1) {
-  let combo = 1;
-
-  while (true) {
-    const matchData = findMatchData();
-    if (matchData.matches.size === 0) break;
-
-    const specialToCreate = determineSpecialToCreate(matchData, preferredCells);
-    const clearSet = expandSpecialEffects(matchData.matches);
-
-    await animateMatches(clearSet, combo);
-    clearCellsAndApplyScore(clearSet, combo, scoreMultiplier);
-
-    if (specialToCreate && inBounds(specialToCreate.row, specialToCreate.col)) {
-      board[specialToCreate.row][specialToCreate.col] = {
-        type: specialToCreate.type,
-        special: specialToCreate.special,
-      };
-    }
-
-    updateHud();
-    await delay(CLEAR_DELAY_MS);
-
-    const dropMap = collapseBoard();
-    refreshBoard(dropMap);
-    await delay(FALL_ANIMATION_MS);
-
-    preferredCells = new Set();
-    combo += 1;
-  }
-
-  if (!hasValidMove()) {
-    reshuffleBoard();
-  }
-
-  if (shouldAdvanceLevel()) {
-    advanceLevel();
-    updateHud();
-  }
-}
-
-function delay(ms) {
-  if (reducedMotion) return Promise.resolve();
-  return new Promise((resolve) => {
-    const start = performance.now();
-    function tick(now) {
-      if (now - start >= ms) {
-        resolve();
-        return;
-      }
-      requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  });
-}
-
-function getSwapDirection(startX, startY, endX, endY) {
-  const dx = endX - startX;
-  const dy = endY - startY;
-  const threshold = 14;
-  const ratioThreshold = 1.22;
-
-  if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return null;
-  if (Math.abs(dx) / Math.max(1, Math.abs(dy)) > ratioThreshold) {
-    return dx > 0 ? { dr: 0, dc: 1 } : { dr: 0, dc: -1 };
-  }
-  if (Math.abs(dy) / Math.max(1, Math.abs(dx)) > ratioThreshold) {
-    return dy > 0 ? { dr: 1, dc: 0 } : { dr: -1, dc: 0 };
-  }
-  return null;
-}
-
-function clearPreview() {
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      cellEls[row][col].classList.remove("preview");
-    }
-  }
-}
-
 async function processSwap(a, b) {
-  if (busy || paused || gameOver) return;
-  if (!inBounds(a.row, a.col) || !inBounds(b.row, b.col)) return;
-  if (!areAdjacent(a, b)) return;
-
+  if (busy || paused || gameOver || !areAdjacent(a, b)) return;
   busy = true;
-  clearHintCells();
-  playSwapSound();
-  candyEls[a.row][a.col].classList.add("swapping");
-  candyEls[b.row][b.col].classList.add("swapping");
-
+  clearHints();
+  ensureAudio();
+  tone(300, 70, "triangle", 0.025);
   const preferred = new Set([keyOf(a.row, a.col), keyOf(b.row, b.col)]);
-  swapCells(a, b);
-  refreshCell(a.row, a.col);
-  refreshCell(b.row, b.col);
+  swapGrid(a, b);
+  await delay(MOVE_TIME);
 
-  const specialComboResult = trySpecialComboSwap(a, b);
-  const bombResult = specialComboResult ? null : tryColorBombSwap(a, b);
-  const hasMatch = findMatchData().matches.size > 0;
-
-  if (!specialComboResult && !bombResult && !hasMatch) {
-    await delay(115);
-    swapCells(a, b);
-    refreshCell(a.row, a.col);
-    refreshCell(b.row, b.col);
-    setMessage("Invalid move. Swap must create a match.");
+  const bombSwap = grid[a.row][a.col]?.special === "bomb" || grid[b.row][b.col]?.special === "bomb";
+  const matches = findMatches();
+  if (!bombSwap && !matches.matches.size) {
+    grid[a.row][a.col].el.classList.add("invalid");
+    grid[b.row][b.col].el.classList.add("invalid");
+    swapGrid(a, b);
+    await delay(MOVE_TIME);
+    for (const piece of [grid[a.row][a.col], grid[b.row][b.col]]) piece.el.classList.remove("invalid");
+    setMessage("That swap needs a match.");
     busy = false;
-    clearSelection();
+    selected = null;
+    refreshTileStates();
     return;
   }
 
-  if (specialComboResult) {
-    await animateMatches(specialComboResult.clearSet, 1);
-    clearCellsAndApplyScore(specialComboResult.clearSet, 1, specialComboResult.scoreMult);
-    updateHud();
-    await delay(CLEAR_DELAY_MS);
-    const dropMap = collapseBoard();
-    refreshBoard(dropMap);
-    await delay(FALL_ANIMATION_MS);
-    await resolveBoard();
-  } else if (bombResult) {
-    await animateMatches(bombResult.clearSet, 1);
-    clearCellsAndApplyScore(bombResult.clearSet, 1, bombResult.scoreMult);
-    updateHud();
-    await delay(CLEAR_DELAY_MS);
-    const dropMap = collapseBoard();
-    refreshBoard(dropMap);
-    await delay(FALL_ANIMATION_MS);
-    await resolveBoard();
-  } else {
-    await resolveBoard(preferred);
+  moves += 1;
+  streak = 1;
+  if (bombSwap && !matches.matches.size) {
+    await clearPieces(expandSpecials(preferred), null);
+    await collapseBoard();
   }
-
-  setMessage("Keep chaining for bigger combos.");
-  clearSelection();
+  await resolveBoard(preferred);
+  fever = clamp(fever - 0.05, 0, 1);
+  selected = null;
+  refreshTileStates();
+  setMessage(fever >= 0.98 ? "Fever is maxed. Specials score harder." : "Keep chaining for bigger streaks.");
   busy = false;
   scheduleHint();
 }
 
-function handleBoardClick(cell) {
-  if (busy || paused || gameOver) return;
-  scheduleHint();
-
-  const row = Number(cell.dataset.row);
-  const col = Number(cell.dataset.col);
-  if (!selectedCell) {
-    setSelected(row, col);
-    return;
+function advanceLevel() {
+  if (levelIndex < LEVELS.length - 1) {
+    levelIndex += 1;
+    levelStartScore = score;
+    colorProgress = 0;
+    timeLeft += level().time;
+    addFloat(`Level ${levelIndex + 1}`, 3.5, 3.5);
+    setMessage(`Level ${levelIndex + 1}. Timer bonus added.`);
+    makeBoard();
+  } else {
+    setMessage("Final quota complete. Run up the score before time expires.");
   }
-
-  const prev = selectedCell;
-  if (prev.row === row && prev.col === col) {
-    clearSelection();
-    return;
-  }
-
-  if (!areAdjacent(prev, { row, col })) {
-    setSelected(row, col);
-    return;
-  }
-
-  processSwap(prev, { row, col });
 }
 
-function stopTimer() {
-  if (!timerId) return;
-  clearInterval(timerId);
-  timerId = null;
+function updateHud() {
+  if (score > highScore) {
+    highScore = score;
+    localStorage.setItem(STORE_BEST, String(highScore));
+  }
+  const cfg = level();
+  scoreEl.textContent = score.toLocaleString();
+  highScoreEl.textContent = highScore.toLocaleString();
+  timeEl.textContent = String(timeLeft);
+  levelEl.textContent = String(levelIndex + 1);
+  streakEl.textContent = `x${streak}`;
+  clearedEl.textContent = cleared.toLocaleString();
+  movesEl.textContent = moves.toLocaleString();
+  feverEl.textContent = `${Math.round(fever * 100)}%`;
+  goalTitleEl.textContent = `Level ${levelIndex + 1}`;
+  goalCopyEl.textContent = `${cfg.score.toLocaleString()} points and ${cfg.count} ${TYPE_NAMES[cfg.type]} candies.`;
+  scoreLabelEl.textContent = `${Math.min(score - levelStartScore, cfg.score).toLocaleString()} / ${cfg.score.toLocaleString()} points`;
+  colorLabelEl.textContent = `${Math.min(colorProgress, cfg.count)} / ${cfg.count} ${TYPE_NAMES[cfg.type]}`;
+  scoreProgressEl.value = clamp(score - levelStartScore, 0, cfg.score);
+  scoreProgressEl.max = cfg.score;
+  colorProgressEl.value = clamp(colorProgress, 0, cfg.count);
+  colorProgressEl.max = cfg.count;
+}
+
+function setMessage(text) {
+  messageEl.textContent = text;
 }
 
 function startTimer() {
-  stopTimer();
+  clearInterval(timerId);
   timerId = setInterval(() => {
     if (paused || gameOver) return;
-    timeLeft = Math.max(0, timeLeft - 1);
-
-    if (timeLeft <= 10 && !warnedLowTime) {
-      warnedLowTime = true;
-      playWarningSound();
-      setMessage("10 seconds left. Move fast.");
+    timeLeft -= 1;
+    fever = clamp(fever - 0.012, 0, 1);
+    if (timeLeft === 10) {
+      setMessage("10 seconds left.");
+      tone(220, 160, "sine", 0.05);
     }
-
+    if (timeLeft <= 0) endGame();
     updateHud();
-    if (timeLeft === 0) {
-      endGame();
-    }
   }, 1000);
 }
 
 function showOverlay(mode) {
   overlayEl.classList.remove("hidden");
-
-  if (mode === "pause") {
-    modalTitleEl.textContent = "Game Paused";
-    modalTextEl.textContent = "Tap Resume to continue.";
-    resumeBtn.style.display = "inline-block";
+  resumeBtn.hidden = mode !== "pause";
+  startBtn.textContent = mode === "intro" ? "Start Game" : "Play Again";
+  if (mode === "intro") {
+    dialogKickerEl.textContent = "Match-3 Sprint";
+    dialogTitleEl.textContent = "Sugar Rush Blitz";
+    dialogCopyEl.textContent = "Swap adjacent sweets, chain cascades, charge fever, and use specials to beat every quota.";
+    dialogStatsEl.innerHTML = "";
+  } else if (mode === "pause") {
+    dialogKickerEl.textContent = "Paused";
+    dialogTitleEl.textContent = "Game Paused";
+    dialogCopyEl.textContent = "Resume when ready.";
+    dialogStatsEl.innerHTML = statsMarkup();
   } else {
-    modalTitleEl.textContent = "Time Up";
-    modalTextEl.textContent = `Final score: ${score.toLocaleString()}`;
-    resumeBtn.style.display = "none";
+    dialogKickerEl.textContent = "Time Up";
+    dialogTitleEl.textContent = "Run Complete";
+    dialogCopyEl.textContent = `Final score: ${score.toLocaleString()}`;
+    dialogStatsEl.innerHTML = statsMarkup();
   }
+}
 
-  const avgScore =
-    persistentStats.gamesPlayed > 0
-      ? Math.round(persistentStats.totalScore / persistentStats.gamesPlayed)
-      : 0;
-
-  modalStatsEl.innerHTML = [
-    `This run combo: x${comboLongestThisRun}`,
-    `This run matches: ${totalMatchesThisRun.toLocaleString()}`,
-    `Games played: ${persistentStats.gamesPlayed.toLocaleString()}`,
-    `Average score: ${avgScore.toLocaleString()}`,
-    `Best combo ever: x${persistentStats.longestComboEver}`,
-  ].join("<br>");
+function statsMarkup() {
+  return [
+    ["Score", score.toLocaleString()],
+    ["Best", highScore.toLocaleString()],
+    ["Moves", moves.toLocaleString()],
+    ["Candies cleared", cleared.toLocaleString()],
+  ].map(([label, value]) => `<article><span>${label}</span><strong>${value}</strong></article>`).join("");
 }
 
 function hideOverlay() {
   overlayEl.classList.add("hidden");
 }
 
+function newGame() {
+  score = 0;
+  levelIndex = 0;
+  levelStartScore = 0;
+  colorProgress = 0;
+  timeLeft = START_TIME;
+  moves = 0;
+  cleared = 0;
+  streak = 1;
+  fever = 0;
+  selected = null;
+  cursor = { row: 0, col: 0 };
+  busy = false;
+  paused = false;
+  gameOver = false;
+  makeBoard();
+  refreshTileStates();
+  updateHud();
+  hideOverlay();
+  startTimer();
+  scheduleHint();
+  setMessage("Swap sweets, build streaks, beat the quota.");
+}
+
 function pauseGame() {
   if (gameOver || paused) return;
   paused = true;
-  stopTimer();
-  clearHintCells();
+  clearHints();
   showOverlay("pause");
-  setMessage("Paused.");
 }
 
 function resumeGame() {
   if (gameOver || !paused) return;
   paused = false;
   hideOverlay();
-  startTimer();
   scheduleHint();
-  setMessage("Back in action.");
 }
 
 function endGame() {
   gameOver = true;
-  paused = false;
-  stopTimer();
-  clearSelection();
-  playEndSound();
-  vibrate([20, 40, 20]);
-
-  persistentStats.gamesPlayed += 1;
-  persistentStats.totalScore += score;
-  persistentStats.longestComboEver = Math.max(
-    persistentStats.longestComboEver,
-    comboLongestThisRun
-  );
-  persistentStats.totalMatchesEver += totalMatchesThisRun;
-  persistentStats.scoreHistory.push(score);
-  persistentStats.scoreHistory = persistentStats.scoreHistory.slice(-10);
-  savePersistentStats();
-
-  setMessage("Game over. Check stats and play again.");
-  showOverlay("gameover");
+  paused = true;
+  clearInterval(timerId);
+  tone(180, 240, "triangle", 0.05);
+  showOverlay("end");
 }
 
-function togglePause() {
-  if (paused) resumeGame();
-  else pauseGame();
+function cellFromPoint(clientX, clientY) {
+  const rect = pieceLayer.getBoundingClientRect();
+  const size = rect.width / SIZE;
+  const col = Math.floor((clientX - rect.left) / size);
+  const row = Math.floor((clientY - rect.top) / size);
+  return inBounds(row, col) ? { row, col } : null;
 }
 
-function startGame() {
-  score = 0;
-  timeLeft = BASE_TIME_SECONDS;
-  currentLevel = 1;
-  levelState = { scoreStart: 0, colorProgress: 0 };
-  selectedCell = null;
-  busy = false;
-  paused = false;
-  gameOver = false;
-  comboLongestThisRun = 0;
-  totalMatchesThisRun = 0;
-  warnedLowTime = false;
-  applyLevelSeed(1);
-
-  createRandomBoard();
-  refreshBoard();
-  hideOverlay();
-  updateHud();
-  startTimer();
-  setKeyboardCursor(0, 0);
-  scheduleHint();
-  setMessage("Real-time mode: drag or tap to swap and chain combos.");
+function selectCell(cell) {
+  if (!cell) return;
+  if (!selected) {
+    selected = cell;
+  } else if (selected.row === cell.row && selected.col === cell.col) {
+    selected = null;
+  } else if (areAdjacent(selected, cell)) {
+    processSwap(selected, cell);
+  } else {
+    selected = cell;
+  }
+  cursor = cell;
+  refreshTileStates();
 }
 
-function extractCellFromEventTarget(target) {
-  return target.closest(".cell");
+function dragDirection(start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return null;
+  if (Math.abs(dx) > Math.abs(dy)) return { row: 0, col: dx > 0 ? 1 : -1 };
+  return { row: dy > 0 ? 1 : -1, col: 0 };
+}
+
+function clearHints() {
+  clearTimeout(hintTimer);
+  for (const row of tiles) {
+    for (const tile of row) tile.classList.remove("hint");
+  }
+}
+
+function showHint() {
+  clearHints();
+  const move = findValidMove();
+  if (!move) return;
+  tiles[move.from.row][move.from.col].classList.add("hint");
+  tiles[move.to.row][move.to.col].classList.add("hint");
+}
+
+function scheduleHint() {
+  clearHints();
+  hintTimer = setTimeout(() => {
+    if (!busy && !paused && !gameOver) showHint();
+  }, 5000);
 }
 
 boardEl.addEventListener("pointerdown", (event) => {
-  const cell = extractCellFromEventTarget(event.target);
-  if (!cell || busy || paused || gameOver) return;
-
-  ensureAudioContext();
-  scheduleHint();
-  clearPreview();
-
-  pointerState = {
-    startX: event.clientX,
-    startY: event.clientY,
-    row: Number(cell.dataset.row),
-    col: Number(cell.dataset.col),
-    acted: false,
-  };
-
+  if (busy || paused || gameOver) return;
+  ensureAudio();
+  const cell = cellFromPoint(event.clientX, event.clientY);
+  if (!cell) return;
+  pointer = { cell, x: event.clientX, y: event.clientY, acted: false };
   boardEl.setPointerCapture(event.pointerId);
 });
 
 boardEl.addEventListener("pointermove", (event) => {
-  if (!pointerState || pointerState.acted || busy || paused || gameOver) return;
-  clearPreview();
-
-  const dir = getSwapDirection(
-    pointerState.startX,
-    pointerState.startY,
-    event.clientX,
-    event.clientY
-  );
+  if (!pointer || pointer.acted || busy || paused || gameOver) return;
+  const dir = dragDirection(pointer, { x: event.clientX, y: event.clientY });
   if (!dir) return;
-
-  const previewRow = pointerState.row + dir.dr;
-  const previewCol = pointerState.col + dir.dc;
-  if (inBounds(previewRow, previewCol)) {
-    cellEls[previewRow][previewCol].classList.add("preview");
+  const to = { row: pointer.cell.row + dir.row, col: pointer.cell.col + dir.col };
+  if (inBounds(to.row, to.col)) {
+    pointer.acted = true;
+    processSwap(pointer.cell, to);
   }
-
-  pointerState.acted = true;
-  const from = { row: pointerState.row, col: pointerState.col };
-  const to = { row: from.row + dir.dr, col: from.col + dir.dc };
-  processSwap(from, to);
 });
 
 boardEl.addEventListener("pointerup", (event) => {
-  clearPreview();
-  if (pointerState && !pointerState.acted) {
-    const cell = extractCellFromEventTarget(event.target);
-    if (cell) handleBoardClick(cell);
+  if (pointer && !pointer.acted) {
+    const cell = cellFromPoint(event.clientX, event.clientY);
+    selectCell(cell);
   }
-
-  if (pointerState) {
-    try {
-      boardEl.releasePointerCapture(event.pointerId);
-    } catch {
-      // ignore
-    }
+  try {
+    boardEl.releasePointerCapture(event.pointerId);
+  } catch {
+    // Pointer capture can already be released by the browser.
   }
-
-  pointerState = null;
+  pointer = null;
 });
 
-boardEl.addEventListener("click", (event) => {
-  if (pointerState) return;
-  const cell = extractCellFromEventTarget(event.target);
-  if (!cell) return;
-  handleBoardClick(cell);
+boardEl.addEventListener("keydown", (event) => {
+  if (busy || paused || gameOver) return;
+  const keys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "];
+  if (!keys.includes(event.key)) return;
+  event.preventDefault();
+  if (event.key === "ArrowUp") cursor.row = Math.max(0, cursor.row - 1);
+  if (event.key === "ArrowDown") cursor.row = Math.min(SIZE - 1, cursor.row + 1);
+  if (event.key === "ArrowLeft") cursor.col = Math.max(0, cursor.col - 1);
+  if (event.key === "ArrowRight") cursor.col = Math.min(SIZE - 1, cursor.col + 1);
+  if (event.key === "Enter" || event.key === " ") selectCell({ ...cursor });
+  refreshTileStates();
 });
 
-resetBtn.addEventListener("click", () => {
-  startGame();
-});
-
-pauseBtn.addEventListener("click", () => {
-  togglePause();
-});
-
-resumeBtn.addEventListener("click", () => {
-  resumeGame();
-});
-
-playAgainBtn.addEventListener("click", () => {
-  startGame();
-});
-
-hintBtn.addEventListener("click", () => {
-  showHint();
-});
-
-colorblindBtn.addEventListener("click", () => {
-  colorblindEnabled = !colorblindEnabled;
-  applyAccessibilityClasses();
-  updateToggleLabels();
-});
-
+startBtn.addEventListener("click", newGame);
+resumeBtn.addEventListener("click", resumeGame);
+newGameBtn.addEventListener("click", newGame);
+pauseBtn.addEventListener("click", () => (paused ? resumeGame() : pauseGame()));
+hintBtn.addEventListener("click", showHint);
 motionBtn.addEventListener("click", () => {
   reducedMotion = !reducedMotion;
-  applyAccessibilityClasses();
-  updateToggleLabels();
+  document.body.classList.toggle("reduced-motion", reducedMotion);
+  motionBtn.textContent = reducedMotion ? "Motion Off" : "Motion On";
+  motionBtn.setAttribute("aria-pressed", String(!reducedMotion));
 });
-
 soundBtn.addEventListener("click", () => {
-  soundEnabled = !soundEnabled;
-  updateToggleLabels();
+  soundOn = !soundOn;
+  soundBtn.textContent = soundOn ? "Sound On" : "Sound Off";
+  soundBtn.setAttribute("aria-pressed", String(soundOn));
 });
 
-window.addEventListener("keydown", (event) => {
-  if (isEntryMenuOpen()) return;
-  if (overlayEl.classList.contains("hidden") === false) return;
-  if (busy || paused || gameOver) return;
+window.addEventListener("resize", updateBoardMetrics);
 
-  const key = event.key;
-  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "].includes(key)) {
-    event.preventDefault();
-  }
-
-  if (key === "ArrowUp") setKeyboardCursor(Math.max(0, keyboardCursor.row - 1), keyboardCursor.col);
-  else if (key === "ArrowDown") setKeyboardCursor(Math.min(BOARD_SIZE - 1, keyboardCursor.row + 1), keyboardCursor.col);
-  else if (key === "ArrowLeft") setKeyboardCursor(keyboardCursor.row, Math.max(0, keyboardCursor.col - 1));
-  else if (key === "ArrowRight") setKeyboardCursor(keyboardCursor.row, Math.min(BOARD_SIZE - 1, keyboardCursor.col + 1));
-  else if (key === "Enter" || key === " ") {
-    const { row, col } = keyboardCursor;
-    if (!selectedCell) {
-      setSelected(row, col);
-    } else if (areAdjacent(selectedCell, { row, col })) {
-      processSwap(selectedCell, { row, col });
-    } else {
-      setSelected(row, col);
-    }
-  }
-});
-
-buildBoardDom();
-applyAccessibilityClasses();
-updateToggleLabels();
-applyLevelSeed(1);
-createRandomBoard();
-refreshBoard();
+buildBoardShell();
+updateBoardMetrics();
+makeBoard();
+refreshTileStates();
 updateHud();
-setKeyboardCursor(0, 0);
-setMessage("Open the tutorial or start a new game.");
-createEntryMenu({
-  title: "Sugar Rush Blitz",
-  kicker: "Match Rush",
-  description: "Kick off a fresh candy sprint, read the rules, then jump into a timed run with level goals.",
-  tutorial: [
-    "Drag or tap to swap adjacent candies and make matches of three or more.",
-    "The timer is always running during a live round, so quick combos matter as much as raw score.",
-    "Each level has both a score target and a color target, shown in the goal panel.",
-    "Hint, colorblind, motion, and sound toggles stay available once the run begins.",
-  ],
-  onStart: startGame,
-});
+showOverlay("intro");
