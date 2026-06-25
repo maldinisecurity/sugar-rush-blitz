@@ -316,6 +316,10 @@ let hintTimerId = null;
 let hintCells = [];
 let keyboardCursor = { row: 0, col: 0 };
 let levelRng = Math.random;
+let activeGameId = 0;
+let pendingGameOver = false;
+let suppressClickUntil = 0;
+let feverSeconds = 0;
 
 const persistentStats = loadPersistentStats();
 const cellEls = [];
@@ -402,6 +406,23 @@ function setMessage(text) {
   messageEl.textContent = text;
 }
 
+function nextGameId() {
+  activeGameId += 1;
+  return activeGameId;
+}
+
+function isCurrentGame(gameId) {
+  return gameId === activeGameId;
+}
+
+function suppressBoardClick(durationMs = 320) {
+  suppressClickUntil = performance.now() + durationMs;
+}
+
+function shouldSuppressBoardClick() {
+  return performance.now() < suppressClickUntil;
+}
+
 function updateToggleLabels() {
   colorblindBtn.textContent = `Colorblind: ${colorblindEnabled ? "On" : "Off"}`;
   motionBtn.textContent = `Motion: ${reducedMotion ? "Off" : "On"}`;
@@ -421,6 +442,7 @@ function clearHintCells() {
 }
 
 function showHint(move = null) {
+  if (busy || paused || gameOver || isEntryMenuOpen()) return;
   clearHintCells();
   const found = move || findAnyValidMove();
   if (!found) return;
@@ -588,6 +610,13 @@ function clearSelection() {
   selectedCell = null;
 }
 
+function resetTransientUi() {
+  clearSelection();
+  clearPreview();
+  clearHintCells();
+  pointerState = null;
+}
+
 function setSelected(row, col) {
   clearSelection();
   selectedCell = { row, col };
@@ -596,8 +625,9 @@ function setSelected(row, col) {
 
 function updateHud() {
   scoreEl.textContent = String(score);
-  timeLeftEl.textContent = String(timeLeft);
+  timeLeftEl.textContent = feverSeconds > 0 ? `${timeLeft} Fever` : String(timeLeft);
   levelEl.textContent = String(currentLevel);
+  boardEl.classList.toggle("fever", feverSeconds > 0);
 
   if (score > highScore) {
     highScore = score;
@@ -1027,7 +1057,12 @@ function clearCellsAndApplyScore(clearSet, combo, scoreMultiplier = 1) {
   const specialBonus = specialsCleared * 130;
   const comboMultiplier = 1 + (combo - 1) * 0.35;
   const pressureBonus = timeLeft <= 15 ? Math.round(basePoints * 0.15) : 0;
-  score += Math.round((basePoints + specialBonus + pressureBonus) * comboMultiplier * scoreMultiplier);
+  const feverMultiplier = feverSeconds > 0 ? 1.25 : 1;
+  score += Math.round((basePoints + specialBonus + pressureBonus) * comboMultiplier * scoreMultiplier * feverMultiplier);
+  if (combo >= 4) {
+    feverSeconds = Math.min(12, feverSeconds + 4);
+    showFloatingText("Fever!", 2, 3, "combo");
+  }
 }
 
 function collapseBoard() {
@@ -1113,9 +1148,8 @@ function reshuffleBoard() {
     }
   }
 
-  let tries = 0;
-  do {
-    tries += 1;
+  let playable = false;
+  for (let tries = 0; tries < 40; tries += 1) {
     for (let i = pool.length - 1; i > 0; i -= 1) {
       const j = Math.floor(levelRng() * (i + 1));
       const tmp = pool[i];
@@ -1130,10 +1164,21 @@ function reshuffleBoard() {
         idx += 1;
       }
     }
-  } while ((findMatchData().matches.size > 0 || !hasValidMove()) && tries < 20);
+
+    if (findMatchData().matches.size === 0 && hasValidMove()) {
+      playable = true;
+      break;
+    }
+  }
+
+  if (!playable) {
+    createRandomBoard();
+    setMessage("No moves left. Fresh board loaded.");
+  } else {
+    setMessage("No moves left. Board reshuffled.");
+  }
 
   refreshBoard();
-  setMessage("No moves left. Board reshuffled.");
 }
 
 function shouldAdvanceLevel() {
@@ -1160,10 +1205,12 @@ function advanceLevel() {
   setMessage(`Level ${currentLevel} started. +${TIME_BONUS_PER_LEVEL}s bonus.`);
 }
 
-async function resolveBoard(preferredCells = new Set(), scoreMultiplier = 1) {
+async function resolveBoard(gameId, preferredCells = new Set(), scoreMultiplier = 1) {
   let combo = 1;
 
   while (true) {
+    if (!isCurrentGame(gameId)) return false;
+
     const matchData = findMatchData();
     if (matchData.matches.size === 0) break;
 
@@ -1171,6 +1218,7 @@ async function resolveBoard(preferredCells = new Set(), scoreMultiplier = 1) {
     const clearSet = expandSpecialEffects(matchData.matches);
 
     await animateMatches(clearSet, combo);
+    if (!isCurrentGame(gameId)) return false;
     clearCellsAndApplyScore(clearSet, combo, scoreMultiplier);
 
     if (specialToCreate && inBounds(specialToCreate.row, specialToCreate.col)) {
@@ -1182,14 +1230,18 @@ async function resolveBoard(preferredCells = new Set(), scoreMultiplier = 1) {
 
     updateHud();
     await delay(CLEAR_DELAY_MS);
+    if (!isCurrentGame(gameId)) return false;
 
     const dropMap = collapseBoard();
     refreshBoard(dropMap);
     await delay(FALL_ANIMATION_MS);
+    if (!isCurrentGame(gameId)) return false;
 
     preferredCells = new Set();
     combo += 1;
   }
+
+  if (pendingGameOver) return true;
 
   if (!hasValidMove()) {
     reshuffleBoard();
@@ -1199,6 +1251,8 @@ async function resolveBoard(preferredCells = new Set(), scoreMultiplier = 1) {
     advanceLevel();
     updateHud();
   }
+
+  return true;
 }
 
 function delay(ms) {
@@ -1241,12 +1295,14 @@ function clearPreview() {
 }
 
 async function processSwap(a, b) {
-  if (busy || paused || gameOver) return;
+  if (busy || paused || gameOver || isEntryMenuOpen()) return;
   if (!inBounds(a.row, a.col) || !inBounds(b.row, b.col)) return;
   if (!areAdjacent(a, b)) return;
 
+  const gameId = activeGameId;
   busy = true;
   clearHintCells();
+  ensureAudioContext();
   playSwapSound();
   candyEls[a.row][a.col].classList.add("swapping");
   candyEls[b.row][b.col].classList.add("swapping");
@@ -1262,45 +1318,61 @@ async function processSwap(a, b) {
 
   if (!specialComboResult && !bombResult && !hasMatch) {
     await delay(115);
+    if (!isCurrentGame(gameId)) return;
     swapCells(a, b);
     refreshCell(a.row, a.col);
     refreshCell(b.row, b.col);
     setMessage("Invalid move. Swap must create a match.");
     busy = false;
     clearSelection();
+    scheduleHint();
     return;
   }
 
   if (specialComboResult) {
     await animateMatches(specialComboResult.clearSet, 1);
+    if (!isCurrentGame(gameId)) return;
     clearCellsAndApplyScore(specialComboResult.clearSet, 1, specialComboResult.scoreMult);
     updateHud();
     await delay(CLEAR_DELAY_MS);
+    if (!isCurrentGame(gameId)) return;
     const dropMap = collapseBoard();
     refreshBoard(dropMap);
     await delay(FALL_ANIMATION_MS);
-    await resolveBoard();
+    if (!isCurrentGame(gameId)) return;
+    await resolveBoard(gameId);
   } else if (bombResult) {
     await animateMatches(bombResult.clearSet, 1);
+    if (!isCurrentGame(gameId)) return;
     clearCellsAndApplyScore(bombResult.clearSet, 1, bombResult.scoreMult);
     updateHud();
     await delay(CLEAR_DELAY_MS);
+    if (!isCurrentGame(gameId)) return;
     const dropMap = collapseBoard();
     refreshBoard(dropMap);
     await delay(FALL_ANIMATION_MS);
-    await resolveBoard();
+    if (!isCurrentGame(gameId)) return;
+    await resolveBoard(gameId);
   } else {
-    await resolveBoard(preferred);
+    await resolveBoard(gameId, preferred);
+  }
+
+  if (!isCurrentGame(gameId)) return;
+
+  clearSelection();
+  busy = false;
+
+  if (pendingGameOver) {
+    finalizeGameOver();
+    return;
   }
 
   setMessage("Keep chaining for bigger combos.");
-  clearSelection();
-  busy = false;
   scheduleHint();
 }
 
 function handleBoardClick(cell) {
-  if (busy || paused || gameOver) return;
+  if (busy || paused || gameOver || isEntryMenuOpen()) return;
   scheduleHint();
 
   const row = Number(cell.dataset.row);
@@ -1335,6 +1407,7 @@ function startTimer() {
   timerId = setInterval(() => {
     if (paused || gameOver) return;
     timeLeft = Math.max(0, timeLeft - 1);
+    feverSeconds = Math.max(0, feverSeconds - 1);
 
     if (timeLeft <= 10 && !warnedLowTime) {
       warnedLowTime = true;
@@ -1381,6 +1454,10 @@ function hideOverlay() {
 }
 
 function pauseGame() {
+  if (busy) {
+    setMessage("Pause becomes available after the current cascade.");
+    return;
+  }
   if (gameOver || paused) return;
   paused = true;
   stopTimer();
@@ -1398,11 +1475,14 @@ function resumeGame() {
   setMessage("Back in action.");
 }
 
-function endGame() {
+function finalizeGameOver() {
+  if (gameOver) return;
   gameOver = true;
   paused = false;
+  pendingGameOver = false;
+  busy = false;
   stopTimer();
-  clearSelection();
+  resetTransientUi();
   playEndSound();
   vibrate([20, 40, 20]);
 
@@ -1421,12 +1501,29 @@ function endGame() {
   showOverlay("gameover");
 }
 
+function endGame() {
+  if (gameOver) return;
+  if (busy) {
+    pendingGameOver = true;
+    timeLeft = 0;
+    stopTimer();
+    updateHud();
+    setMessage("Time expired. Finishing the current cascade.");
+    return;
+  }
+  finalizeGameOver();
+}
+
 function togglePause() {
   if (paused) resumeGame();
   else pauseGame();
 }
 
 function startGame() {
+  nextGameId();
+  pendingGameOver = false;
+  suppressClickUntil = 0;
+  stopTimer();
   score = 0;
   timeLeft = BASE_TIME_SECONDS;
   currentLevel = 1;
@@ -1438,8 +1535,10 @@ function startGame() {
   comboLongestThisRun = 0;
   totalMatchesThisRun = 0;
   warnedLowTime = false;
+  feverSeconds = 0;
   applyLevelSeed(1);
 
+  resetTransientUi();
   createRandomBoard();
   refreshBoard();
   hideOverlay();
@@ -1455,6 +1554,7 @@ function extractCellFromEventTarget(target) {
 }
 
 boardEl.addEventListener("pointerdown", (event) => {
+  if (isEntryMenuOpen()) return;
   const cell = extractCellFromEventTarget(event.target);
   if (!cell || busy || paused || gameOver) return;
 
@@ -1492,6 +1592,7 @@ boardEl.addEventListener("pointermove", (event) => {
   }
 
   pointerState.acted = true;
+  suppressBoardClick();
   const from = { row: pointerState.row, col: pointerState.col };
   const to = { row: from.row + dir.dr, col: from.col + dir.dc };
   processSwap(from, to);
@@ -1515,7 +1616,13 @@ boardEl.addEventListener("pointerup", (event) => {
   pointerState = null;
 });
 
+boardEl.addEventListener("pointercancel", () => {
+  clearPreview();
+  pointerState = null;
+});
+
 boardEl.addEventListener("click", (event) => {
+  if (isEntryMenuOpen() || shouldSuppressBoardClick()) return;
   if (pointerState) return;
   const cell = extractCellFromEventTarget(event.target);
   if (!cell) return;
@@ -1539,6 +1646,7 @@ playAgainBtn.addEventListener("click", () => {
 });
 
 hintBtn.addEventListener("click", () => {
+  if (busy || paused || gameOver || isEntryMenuOpen()) return;
   showHint();
 });
 

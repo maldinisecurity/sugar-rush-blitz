@@ -356,6 +356,14 @@ button:hover {
   animation: boardPunch 180ms ease-out;
 }
 
+.board.fever {
+  box-shadow:
+    0 0 0 2px rgba(255, 248, 194, 0.42),
+    0 18px 48px rgba(255, 202, 40, 0.18),
+    inset 0 0 34px rgba(255, 202, 40, 0.12);
+  animation: feverGlow 900ms ease-in-out infinite;
+}
+
 body.colorblind .type-0 {
   --ball-base: #ff6f00;
   --ball-mid: #ffa33a;
@@ -480,6 +488,15 @@ body.colorblind .type-5 {
   to {
     transform: translateY(-28px);
     opacity: 0;
+  }
+}
+
+@keyframes feverGlow {
+  0%, 100% {
+    filter: saturate(1);
+  }
+  50% {
+    filter: saturate(1.18) brightness(1.04);
   }
 }
 

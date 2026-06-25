@@ -15,6 +15,7 @@ Sugar Rush Blitz is a fast, real-time match-3 browser game inspired by Candy Cru
   - Color bomb
 - Special combo interactions (striped+striped, striped+wrapped, wrapped+wrapped, bomb combos)
 - Combo scoring and floating score effects
+- Fever mode from large cascades, with temporary score boost and board glow
 - Ball pop, spark burst, and rolling drop animations
 - Drag-to-swap and tap-to-swap controls
 - Drag preview and stricter directional swap detection
